@@ -23,9 +23,22 @@ A configurable [Claude Code](https://docs.claude.com/en/docs/claude-code/statusl
 | Segment | Meaning |
 | --- | --- |
 | Prompt cache | Time until the cache expires (or **cold** plus the tokens a re-cache would bill), hit ratio, misses |
-| Plan limits | 5-hour and weekly usage; reset countdown appears at 50% and above |
+| Plan limits | 5-hour and weekly usage; reset countdown appears at 50% and above. Add `spend` to `windows` to show dollars used against a spend limit |
 | Cost | Session cost and burn rate per hour (after the first 5 minutes) |
 | Git | Branch, dirty file count, ahead/behind, and lines added/removed this session |
+
+**Optional segments** (not in the default layout; add them in the configurator or under `lines`)
+
+| Segment | Meaning |
+| --- | --- |
+| Folder (`dir`) | Current folder, the folder the session started in when it differs, and how many folders were added with `/add-dir` |
+| Session (`session`) | Session name, from `--name`, `/rename`, or the generated title |
+| Pull request (`pr`) | Open PR (or GitLab merge request) for the branch, colored by review state, as a clickable link |
+| Vim mode (`vim`) | NORMAL, INSERT or VISUAL when vim mode is on. Set `"hideVimModeIndicator": true` in the `statusLine` settings so the mode isn't shown twice |
+| Agent (`agent`) | Agent name when running with `--agent`, and the output style when it isn't the default |
+| Duration (`duration`) | Session time and the share of it spent waiting on the API |
+| Clock (`clock`) | Local time. While the session is idle it only updates if `refreshInterval` is set in the `statusLine` settings |
+| Text (`text`) | Fixed text, such as a label or a spacer |
 
 Segments with no data are omitted. Which segments appear, on which line and in what order, is [configurable](#configuration).
 
@@ -96,15 +109,23 @@ The live status line validates too: a problem shows as a red **cfg** warning on 
 
 | Id | Options (defaults) |
 | --- | --- |
-| `model` | `effort` (true), `fast` (true) |
+| `model` | `effort` (true), `fast` (true), `thinking` (false: lightbulb when extended thinking is on) |
 | `context` | `barCells` (10), `turnDelta` (true) |
 | `handoff` | `turnEstimate` (true) |
 | `tokens` | none |
-| `cache` | `hitRatio` (true), `misses` (true) |
-| `limits` | `windows` (`["5h", "wk"]`), `showResetAbove` (50), `warn` (50), `bad` (80) |
+| `cache` | `hitRatio` (true), `misses` (true), `missCause` (false: likely cause of the last miss, such as tools changed) |
+| `limits` | `windows` (`["5h", "wk"]`; also `"spend"`, shown as `$used/$limit` with a day/wk/mo label), `showResetAbove` (50), `warn` (50), `bad` (80) |
 | `cost` | `burnRate` (true), `burnRateAfterMin` (5) |
-| `git` | `lineDelta` (true), `timeoutMs` (500) |
+| `git` | `lineDelta` (true), `timeoutMs` (500), `worktree` (false: worktree name in a linked worktree), `repo` (false: `owner/name` before the branch) |
+| `dir` | `style` (`"short"`, `"name"` or `"full"`), `projectDir` (true), `addedDirs` (true) |
+| `session` | `maxLength` (30) |
+| `pr` | `state` (true), `link` (true) |
+| `vim` | `short` (false) |
+| `agent` | `outputStyle` (true) |
+| `duration` | `apiShare` (true) |
+| `clock` | `format` (`"24h"` or `"12h"`), `seconds` (false) |
 | `command` | `cmd` (required), `icon`, `color` (`"fg"`: a palette name or `#rrggbb`), `timeoutMs` (300), `cacheSec` (30) |
+| `text` | `text` (required), `color` (`"dim"`) |
 
 `command` runs `cmd` through your shell in the session's directory and shows the first line of output. Its result, including a failure or timeout, is cached for `cacheSec`, so a slow command runs at most once per interval. Use it more than once with different inline options to add several custom segments.
 
