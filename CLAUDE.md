@@ -9,7 +9,8 @@ One-file Claude Code status line (`statusLine.js`). The README covers the segmen
 - Make multi-step changes in a scratch copy outside the repo and move it in once it passes the gate below.
 - **Gate** (there is no test suite), run before moving a change in and before every commit:
   1. `node --check statusLine.js`
-  2. Pipe the README's "Try it" payload through it, adding `| sed 's/\x1b\[[0-9;]*m//g'` to strip color. Extend the payload with whatever your change reads (`prompt_cache`, `rate_limits`, `cost`, `session_id`), because a segment with no data is omitted and a broken one can look identical to an empty one.
+  2. Pipe the README's "Try it" payload through it, adding `| sed 's/\x1b\[[0-9;]*m//g'` to strip color. Extend the payload with whatever your change reads (`prompt_cache`, `rate_limits`, `cost`, `session_id`), because a segment with no data is omitted and a broken one can look identical to an empty one. `node statusLine.js --check` previews all three sample scenarios with every field filled in.
+  3. If `SPEC` changed, regenerate the schema: `node statusLine.js --schema > statusLine.schema.json`.
 
 ## Input contract
 
@@ -17,16 +18,22 @@ Claude Code pipes the status JSON on stdin; its schema is documented at https://
 
 ## Segments and config
 
-- A segment is a function `(ctx, opts) => string | null` registered in `SEGMENTS`. `ctx` carries the payload (`d`), merged config (`cfg`), `now`, `cwd` and a per-refresh `memo`; `opts` is that segment's entry in `DEFAULTS.segments`, merged with the user's config and any inline options from `lines`.
-- Adding a segment means a function, a `SEGMENTS` entry, its default options in `DEFAULTS.segments`, and a row in the README's segments table.
+- A segment is a function `(ctx, opts) => string | null` registered in `SEGMENTS`. `ctx` carries the payload (`d`), merged config (`cfg`), `now`, `cwd`, `preview` and a per-refresh `memo`; `opts` is that segment's shared options merged with any inline options from `lines`.
+- `SPEC` is the single source for every setting's type, default and description. `DEFAULTS`, `validate`, `--schema` and the configurator's forms are all derived from it, so adding a segment means a function, a `SEGMENTS` entry, a `SPEC.segments` entry, a row in the README's segments table, and a regenerated schema. The configurator's display name and chip color live in `NAMES`/`CHIP_COLOR` in `configure.html`.
 - User config is `~/.claude/statusLine.json` (or `$STATUSLINE_CONFIG`), outside the repo. `loadConfig` must never throw: bad config falls back to defaults plus a `cfg` warning. Gate config changes by pointing `STATUSLINE_CONFIG` at a scratch file.
+- `statusLine.js` is also a module: `configure.js` requires it for `SPEC`, `validate` and `render`, so top-level code must stay side-effect free (CLI work is behind `require.main === module`).
+- Segments must honor `ctx.preview`: the configurator and `--check` render unsaved config, so nothing that runs user input (like `command`) may execute in preview.
+
+## Configurator
+
+`configure.js` serves `configure.html` on 127.0.0.1 and is not on the hot path, so it can be slower and bigger. Every API call needs the per-run token and a loopback Host header, because a saved `command` segment runs on every refresh. Check UI changes in a browser in light and dark mode and at phone width, pointing `STATUSLINE_CONFIG` at a scratch copy so the real config isn't touched.
 
 ## Constraints
 
 - Node built-ins only: the install is a symlink, with no `npm install` step.
 - All output goes through one `process.stdout.write`. Failures surface as a one-line message from the `try` around `main()`.
 - It runs on every refresh, so it has to be fast. Subprocesses get a timeout, and git also gets `--no-optional-locks` (see `gitSegment`).
-- Colors come from the Tokyo Night palette in `C`. Icons come from `I`, using only the Nerd Font Font Awesome 4 (`U+F000–F2E0`) and Powerline (`U+E0A0–E0D4`) ranges, the ones that are stable across Nerd Font v2 and v3.
+- Colors come from the Tokyo Night palette in `PALETTE`. Icons come from `ICONS`, written as `\uXXXX` escapes (raw private-use glyphs get lost by editing tools), using only the Nerd Font Font Awesome 4 (`U+F000–F2E0`) and Powerline (`U+E0A0–E0D4`) ranges, the ones that are stable across Nerd Font v2 and v3.
 
 ## Handoff model
 

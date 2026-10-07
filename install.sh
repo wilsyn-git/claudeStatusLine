@@ -23,3 +23,4 @@ If you haven't already, add this to ~/.claude/settings.json:
     "padding": 0
   }
 EOF
+printf '\nTo customize the layout, run the visual editor:\n\n  node %s\n' "$(dirname "$SRC")/configure.js"

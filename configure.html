@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Status line config</title>
+<style>
+@font-face { font-family: 'StatusNerd'; src: url('/font'); font-display: swap; }
+
+:root {
+  --bg: #e1e2e7; --surface: #e9e9ed; --raised: #f4f4f7; --line: #c4c8da; --text: #3760bf; --strong: #343b58;
+  --muted: #6172b0; --faint: #848cb5; --accent: #2e7de9; --accent-ink: #ffffff; --danger: #c64343; --ok: #387068;
+  --term: #1a1b26; --term-edge: #292e42; --focus: #2e7de9;
+  --mono: 'StatusNerd', 'JetBrainsMono Nerd Font', 'Symbols Nerd Font Mono', 'DroidSansMono Nerd Font', ui-monospace, Menlo, monospace;
+  --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16161e; --surface: #1a1b26; --raised: #1f2335; --line: #292e42; --text: #a9b1d6; --strong: #c0caf5;
+    --muted: #737aa2; --faint: #565f89; --accent: #7aa2f7; --accent-ink: #16161e; --danger: #f7768e; --ok: #73daca;
+    --term: #1a1b26; --term-edge: #3b4261; --focus: #7aa2f7;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #16161e; --surface: #1a1b26; --raised: #1f2335; --line: #292e42; --text: #a9b1d6; --strong: #c0caf5;
+  --muted: #737aa2; --faint: #565f89; --accent: #7aa2f7; --accent-ink: #16161e; --danger: #f7768e; --ok: #73daca;
+  --term: #1a1b26; --term-edge: #3b4261; --focus: #7aa2f7;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+code, .mono { font-family: var(--mono); }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 64px; }
+
+/* Header */
+header { display: flex; align-items: center; gap: 16px; padding: 20px 0 16px; }
+header h1 { margin: 0; font-size: 20px; font-weight: 650; color: var(--strong); letter-spacing: -0.01em; }
+.path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-family: var(--mono); font-size: 13px; }
+.status { font-size: 14px; color: var(--muted); white-space: nowrap; }
+.status.bad { color: var(--danger); }
+.status.ok { color: var(--ok); }
+.actions { display: flex; gap: 8px; }
+.btn { border: 1px solid var(--line); background: var(--raised); border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: var(--faint); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.small { padding: 3px 10px; font-size: 13px; border-radius: 6px; }
+.btn.ghost { background: transparent; }
+.btn.danger { color: var(--danger); }
+
+/* Preview: the memorable element */
+.terminal { background: var(--term); border: 1px solid var(--term-edge); border-radius: 12px; overflow: hidden; }
+.terminal .screen { padding: 22px 24px 20px; font-family: var(--mono); font-size: 17px; line-height: 1.6; color: #c0caf5; white-space: pre; overflow-x: auto; min-height: 92px; }
+.terminal .prompt { color: #565f89; font-family: var(--mono); font-size: 14px; padding: 0 24px; margin-top: -4px; }
+.terminal .bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--term-edge); color: #737aa2; font-size: 13px; flex-wrap: wrap; }
+.scenarios { display: flex; gap: 2px; background: #16161e; border-radius: 8px; padding: 2px; }
+.scenarios button { background: none; border: 0; border-radius: 6px; padding: 3px 12px; color: #737aa2; cursor: pointer; font-size: 13px; }
+.scenarios button[aria-pressed="true"] { background: #292e42; color: #c0caf5; }
+.bar .hint { margin-left: auto; }
+
+.problems { margin: 14px 0 0; padding: 12px 16px; border: 1px solid var(--danger); border-radius: 10px; color: var(--danger); font-size: 14px; }
+.problems ul { margin: 6px 0 0; padding-left: 18px; }
+.problems code { font-size: 13px; }
+.notice { margin: 14px 0 0; padding: 10px 14px; border-radius: 10px; background: var(--raised); color: var(--muted); font-size: 14px; }
+
+/* Editor grid */
+.grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); gap: 28px; margin-top: 28px; align-items: start; }
+h2 { margin: 0 0 4px; font-size: 16px; font-weight: 650; color: var(--strong); }
+.sub { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+
+.rail { display: flex; align-items: stretch; gap: 10px; margin-bottom: 10px; }
+.rail .num { width: 22px; flex: none; color: var(--faint); font-family: var(--mono); font-size: 13px; padding-top: 11px; text-align: right; }
+.rail .slots { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 46px; padding: 6px; border-radius: 10px; background: var(--term); border: 1px solid var(--term-edge); }
+.rail .slots.over { border-color: var(--accent); }
+.rail .empty { color: #565f89; font-size: 13px; padding: 0 8px; }
+.rail .del { align-self: center; border-color: transparent; color: var(--faint); }
+.rail .del:hover { color: var(--danger); }
+
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #3b4261; background: #1f2335; border-radius: 7px; padding: 5px 8px 5px 10px; cursor: grab; font-family: var(--mono); font-size: 14px; color: var(--chip, #c0caf5); max-width: 100%; }
+.chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip .x { border: 0; background: none; color: #565f89; cursor: pointer; padding: 0 2px; font-size: 15px; line-height: 1; }
+.chip .x:hover { color: #f7768e; }
+.chip[aria-selected="true"] { border-color: var(--chip, #7aa2f7); box-shadow: 0 0 0 1px var(--chip, #7aa2f7); }
+.chip.err { border-color: #f7768e; border-style: dashed; }
+.chip.dragging { opacity: .35; }
+.mark { width: 3px; align-self: stretch; border-radius: 2px; background: var(--accent); margin: 0 -2px; }
+
+.addline { margin: 2px 0 26px 32px; }
+.tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; border: 1px dashed var(--line); border-radius: 10px; min-height: 52px; align-items: center; }
+.tray.over { border-color: var(--danger); }
+.tray .chip { background: var(--term); }
+.tray .empty { color: var(--faint); font-size: 13px; padding: 0 6px; }
+
+/* Inspector */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; position: sticky; top: 16px; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); padding: 0 8px; }
+.tabs button { background: none; border: 0; padding: 12px 10px 10px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 14px; }
+.tabs button[aria-selected="true"] { color: var(--strong); border-color: var(--accent); font-weight: 600; }
+.pane { padding: 18px; }
+.pane h3 { margin: 0; font-size: 17px; color: var(--strong); font-weight: 650; }
+.pane .desc { margin: 4px 0 14px; color: var(--muted); font-size: 14px; }
+.pane .where { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; font-size: 13px; color: var(--faint); }
+.pane .where span { margin-right: auto; }
+.pane .scope { font-size: 13px; color: var(--faint); margin: -4px 0 12px; }
+.pane .placeholder { color: var(--muted); font-size: 14px; }
+.section { margin-top: 22px; }
+.section:first-child { margin-top: 0; }
+.section > h4 { margin: 0 0 8px; font-size: 14px; font-weight: 650; color: var(--strong); }
+
+.field { padding: 10px 0; border-top: 1px solid var(--line); }
+.field:first-of-type { border-top: 0; }
+.field .top { display: flex; align-items: center; gap: 10px; }
+.field label, .field .name { flex: 1; color: var(--strong); font-size: 14px; }
+.field .key { display: block; color: var(--faint); font-size: 12px; font-family: var(--mono); }
+.field .tag { font-size: 12px; color: var(--accent); }
+.field input[type="number"], .field input[type="text"], .field select { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.field input[type="number"] { width: 84px; }
+.field input[type="text"] { width: 100%; margin-top: 6px; font-family: var(--mono); font-size: 14px; }
+.field input[type="range"] { width: 100%; accent-color: var(--accent); margin-top: 6px; }
+.field .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.field .row label { flex: none; display: inline-flex; gap: 5px; align-items: center; font-size: 14px; }
+
+.switch { position: relative; width: 36px; height: 20px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch span { position: absolute; inset: 0; border-radius: 10px; background: var(--line); transition: background .15s; pointer-events: none; }
+.switch span::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--raised); transition: transform .15s; }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::after { transform: translateX(16px); }
+.switch input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.swatches { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+.swatch { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.swatch input[type="color"] { width: 30px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; flex: none; }
+.swatch .nm { flex: 1; min-width: 0; color: var(--strong); }
+.swatch .hex { color: var(--faint); font-family: var(--mono); font-size: 12px; display: block; }
+.swatch .reset { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 0; }
+.icon-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.icon-row .glyph { width: 32px; height: 32px; flex: none; display: grid; place-items: center; font-family: var(--mono); font-size: 18px; background: var(--term); color: #c0caf5; border-radius: 6px; }
+.icon-row .nm { width: 64px; color: var(--strong); font-size: 14px; }
+.icon-row input { flex: 1; min-width: 0; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-family: var(--mono); font-size: 13px; }
+.icon-row .reset { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 0; width: 34px; text-align: right; }
+.hintline { font-size: 13px; color: var(--faint); margin: 0 0 8px; }
+.addcolor { display: flex; gap: 6px; margin-top: 10px; }
+.addcolor input[type="text"] { flex: 1; min-width: 0; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+
+details.json { margin-top: 28px; }
+details.json summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+details.json pre { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow: auto; font-family: var(--mono); font-size: 13px; color: var(--text); max-height: 420px; }
+
+.stopped { max-width: 520px; margin: 18vh auto; text-align: center; color: var(--muted); }
+.stopped h1 { color: var(--strong); font-size: 20px; }
+
+@media (max-width: 860px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .panel { position: static; }
+  header { flex-wrap: wrap; }
+  .path { flex-basis: 100%; order: 3; }
+}
+@media (max-width: 520px) {
+  .wrap { padding: 0 16px 48px; }
+  .terminal .screen { font-size: 14px; padding: 16px; }
+  .swatches { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <header>
+    <h1>Status line</h1>
+    <span class="path" id="path"></span>
+    <span class="status" id="status" role="status" aria-live="polite"></span>
+    <div class="actions">
+      <button class="btn" id="revert" disabled>Revert</button>
+      <button class="btn primary" id="save" disabled>Save</button>
+      <button class="btn ghost" id="done">Done</button>
+    </div>
+  </header>
+
+  <section class="terminal" aria-label="Preview">
+    <div class="screen" id="screen" aria-live="polite"></div>
+    <div class="bar">
+      <div class="scenarios" role="group" aria-label="Sample session">
+        <button data-s="typical" aria-pressed="true">Comfortable</button>
+        <button data-s="warning" aria-pressed="false">Near handoff</button>
+        <button data-s="handoff" aria-pressed="false">Past handoff</button>
+      </div>
+      <span class="hint" id="fonthint"></span>
+    </div>
+  </section>
+  <div id="notices"></div>
+
+  <div class="grid">
+    <section aria-labelledby="layout-h">
+      <h2 id="layout-h">Layout</h2>
+      <p class="sub">Drag segments to reorder them or move them between lines. Select one to change its options.</p>
+      <div id="rails"></div>
+      <button class="btn small addline" id="addline">Add line</button>
+
+      <h2>Not shown</h2>
+      <p class="sub">Drag a segment onto a line, or select it to add it to the last line. Drop a segment here to hide it.</p>
+      <div class="tray" id="tray"></div>
+    </section>
+
+    <aside class="panel" aria-label="Settings">
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="segment" aria-selected="false">Segment</button>
+        <button role="tab" data-tab="general" aria-selected="true">General</button>
+        <button role="tab" data-tab="theme" aria-selected="false">Colors and icons</button>
+      </div>
+      <div class="pane" id="pane"></div>
+    </aside>
+  </div>
+
+  <details class="json">
+    <summary>Config file contents</summary>
+    <pre id="json"></pre>
+  </details>
+</div>
+
+<script>
+'use strict';
+const TOKEN = '__TOKEN__';
+
+const NAMES = { model: 'Model', context: 'Context bar', handoff: 'Handoff', tokens: 'Token mix', cache: 'Prompt cache', limits: 'Plan limits', cost: 'Cost', git: 'Git', command: 'Command' };
+const CHIP_COLOR = { model: 'purple', context: 'green', handoff: 'fg', tokens: 'blue', cache: 'teal', limits: 'blue', cost: 'green', git: 'purple' };
+const SEPARATORS = [[' │ ', 'Bar'], [' · ', 'Dot'], [' | ', 'Pipe'], ['  ', 'Space']];
+
+let S;                 // server state: spec, defaults, palette, icons, path
+let config = {};       // working copy of the config file
+let saved = '{}';      // JSON of the last saved config, for dirty tracking
+let sel = null;        // selected chip: { li, ei }
+let tab = 'general';
+let scenario = 'typical';
+let problems = [];
+let drag = null;       // { from: 'line', li, ei } | { from: 'tray', id }
+
+const $ = (id) => document.getElementById(id);
+const clone = (v) => JSON.parse(JSON.stringify(v));
+const isObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
+const idOf = (e) => (typeof e === 'string' ? e : e?.id);
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else if (k === 'class') n.className = v;
+    else if (k === 'html') n.innerHTML = v;
+    else if (v !== false && v != null) n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) n.append(kid);
+  return n;
+}
+
+async function api(path, body = {}) {
+  const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-token': TOKEN }, body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok && r.status !== 422) throw new Error(data.error || `HTTP ${r.status}`);
+  return { ok: r.ok, data };
+}
+
+// ---- Config accessors ----
+const lines = () => config.lines ?? clone(S.defaults.lines);
+function setLines(l) { config.lines = l; }
+const palette = () => ({ ...S.palette, ...(isObj(config.colors) ? config.colors : {}) });
+const resolveColor = (v) => (/^#[0-9a-f]{6}$/i.test(v) ? v : palette()[v] ?? palette().fg);
+const dirty = () => JSON.stringify(config) !== saved;
+
+function entryAt(li, ei) { return lines()[li]?.[ei]; }
+
+// Where an option is read from and written to: inline on the entry if it's set there (or for command,
+// whose options are per placement), otherwise the segment's shared options under "segments".
+function optScope(entry, key) {
+  const id = idOf(entry);
+  if (id === 'command' || (isObj(entry) && key in entry)) return 'inline';
+  return 'shared';
+}
+function optValue(entry, key) {
+  const id = idOf(entry);
+  if (isObj(entry) && key in entry) return entry[key];
+  const shared = config.segments?.[id];
+  if (isObj(shared) && key in shared) return shared[key];
+  return S.defaults.segments[id]?.[key];
+}
+function setOpt(li, ei, key, value) {
+  const l = lines();
+  let entry = l[li][ei];
+  const id = idOf(entry);
+  if (optScope(entry, key) === 'inline') {
+    if (typeof entry === 'string') entry = { id };
+    if (value === undefined) delete entry[key]; else entry[key] = value;
+    l[li][ei] = Object.keys(entry).length === 1 ? id : entry;
+    setLines(l);
+  } else {
+    config.segments = isObj(config.segments) ? config.segments : {};
+    const seg = (config.segments[id] = isObj(config.segments[id]) ? config.segments[id] : {});
+    if (value === undefined) delete seg[key]; else seg[key] = value;
+  }
+  changed();
+}
+function setTop(key, value) {
+  if (value === undefined) delete config[key]; else config[key] = value;
+  changed();
+}
+function setIn(group, key, value) {
+  const g = (config[group] = isObj(config[group]) ? config[group] : {});
+  if (value === undefined) delete g[key]; else g[key] = value;
+  if (!Object.keys(g).length) delete config[group];
+  changed();
+}
+
+// ---- Layout editing ----
+function insertAt(li, index, entry) {
+  const l = lines();
+  l[li].splice(index, 0, entry);
+  setLines(l);
+  sel = { li, ei: index };
+  tab = 'segment';
+  changed();
+}
+function removeAt(li, ei) {
+  const l = lines();
+  l[li].splice(ei, 1);
+  setLines(l);
+  if (sel && sel.li === li) sel = sel.ei === ei ? null : sel.ei > ei ? { li, ei: sel.ei - 1 } : sel;
+  if (!sel && tab === 'segment') tab = 'general';
+  changed();
+}
+function move(li, ei, toLi, toIndex) {
+  const l = lines();
+  if (!l[toLi]) return;
+  const [entry] = l[li].splice(ei, 1);
+  if (li === toLi && toIndex > ei) toIndex--;
+  toIndex = Math.max(0, Math.min(toIndex, l[toLi].length));
+  l[toLi].splice(toIndex, 0, entry);
+  setLines(l);
+  sel = { li: toLi, ei: toIndex };
+  changed();
+}
+function newEntry(id) {
+  return id === 'command' ? { id: 'command', cmd: '' } : id;
+}
+
+// ---- Rendering ----
+function changed() {
+  render();
+  schedulePreview();
+}
+
+function render() {
+  renderRails();
+  renderTray();
+  renderTabs();
+  renderPane();
+  renderStatus();
+  $('json').textContent = JSON.stringify(config, null, 2);
+}
+
+function chipFor(entry, where) {
+  const id = idOf(entry);
+  const color = id === 'command' ? resolveColor(optValue(entry, 'color') ?? 'fg') : resolveColor(CHIP_COLOR[id] ?? 'fg');
+  const label = id === 'command' && where.li != null ? (entry.cmd ? `$ ${entry.cmd}` : 'Command (needs a cmd)') : NAMES[id] ?? `?${id}`;
+  const isSel = where.li != null && sel && sel.li === where.li && sel.ei === where.ei;
+  const hasErr = where.li != null && problems.some((p) => p.startsWith(`lines[${where.li}][${where.ei}]`));
+  const chip = el('button', {
+    class: `chip${hasErr ? ' err' : ''}`,
+    draggable: 'true',
+    'aria-selected': isSel ? 'true' : 'false',
+    title: S.spec.segments[id]?.desc ?? 'Unknown segment',
+    style: `--chip:${color}`,
+    onclick: () => {
+      if (where.li != null) { sel = { li: where.li, ei: where.ei }; tab = 'segment'; render(); }
+      else { const l = lines(); if (!l.length) l.push([]); setLines(l); insertAt(l.length - 1, l[l.length - 1].length, newEntry(id)); }
+    },
+    onkeydown: (e) => {
+      if (where.li != null && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); removeAt(where.li, where.ei); }
+    },
+    ondragstart: (e) => {
+      drag = where.li != null ? { from: 'line', li: where.li, ei: where.ei } : { from: 'tray', id };
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', id);
+      requestAnimationFrame(() => chip.classList.add('dragging'));
+    },
+    ondragend: () => { drag = null; clearMarks(); chip.classList.remove('dragging'); },
+  }, el('span', { class: 'label' }, label));
+  if (where.li != null) {
+    chip.append(el('span', {
+      class: 'x', role: 'button', 'aria-label': `Remove ${NAMES[id] ?? id}`, title: 'Remove',
+      onclick: (e) => { e.stopPropagation(); removeAt(where.li, where.ei); },
+    }, '×'));
+  }
+  return chip;
+}
+
+function clearMarks() {
+  document.querySelectorAll('.mark').forEach((m) => m.remove());
+  document.querySelectorAll('.over').forEach((m) => m.classList.remove('over'));
+}
+
+// Index to insert at, from the pointer position among a rail's chips (handles wrapped rows)
+function dropIndex(slots, x, y) {
+  const chips = [...slots.querySelectorAll('.chip')];
+  for (let i = 0; i < chips.length; i++) {
+    const r = chips[i].getBoundingClientRect();
+    if (y < r.top) return i;
+    if (y <= r.bottom && x < r.left + r.width / 2) return i;
+  }
+  return chips.length;
+}
+
+function renderRails() {
+  const rails = $('rails');
+  rails.replaceChildren();
+  lines().forEach((line, li) => {
+    const slots = el('div', { class: 'slots' });
+    line.forEach((entry, ei) => slots.append(chipFor(entry, { li, ei })));
+    if (!line.length) slots.append(el('span', { class: 'empty' }, 'Empty line. Drag segments here, or remove it.'));
+    slots.addEventListener('dragover', (e) => {
+      if (!drag) return;
+      e.preventDefault();
+      clearMarks();
+      slots.classList.add('over');
+      const idx = dropIndex(slots, e.clientX, e.clientY);
+      const chips = slots.querySelectorAll('.chip');
+      const mark = el('span', { class: 'mark' });
+      if (chips[idx]) slots.insertBefore(mark, chips[idx]); else slots.append(mark);
+    });
+    slots.addEventListener('dragleave', (e) => { if (!slots.contains(e.relatedTarget)) clearMarks(); });
+    slots.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const idx = dropIndex(slots, e.clientX, e.clientY);
+      const d = drag;
+      drag = null;
+      clearMarks();
+      if (!d) return;
+      if (d.from === 'line') move(d.li, d.ei, li, idx);
+      else insertAt(li, idx, newEntry(d.id));
+    });
+    rails.append(el('div', { class: 'rail' },
+      el('span', { class: 'num', 'aria-hidden': 'true' }, String(li + 1)),
+      slots,
+      el('button', {
+        class: 'btn small ghost del', 'aria-label': `Remove line ${li + 1}`, title: 'Remove line',
+        onclick: () => {
+          const l = lines(); l.splice(li, 1); setLines(l);
+          if (sel?.li === li) { sel = null; if (tab === 'segment') tab = 'general'; } else if (sel?.li > li) sel = { li: sel.li - 1, ei: sel.ei };
+          changed();
+        },
+      }, 'Remove'),
+    ));
+  });
+}
+
+function renderTray() {
+  const tray = $('tray');
+  tray.replaceChildren();
+  const used = new Set(lines().flat().map(idOf));
+  const ids = Object.keys(S.spec.segments).filter((id) => S.spec.segments[id].multi || !used.has(id));
+  ids.forEach((id) => tray.append(chipFor(id, {})));
+  if (!ids.length) tray.append(el('span', { class: 'empty' }, 'Every segment is shown.'));
+  tray.ondragover = (e) => { if (drag?.from === 'line') { e.preventDefault(); tray.classList.add('over'); } };
+  tray.ondragleave = (e) => { if (!tray.contains(e.relatedTarget)) tray.classList.remove('over'); };
+  tray.ondrop = (e) => { e.preventDefault(); tray.classList.remove('over'); const d = drag; drag = null; if (d?.from === 'line') removeAt(d.li, d.ei); };
+}
+
+function renderTabs() {
+  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+}
+
+function renderStatus() {
+  const st = $('status');
+  const d = dirty();
+  if (problems.length) { st.textContent = `${problems.length} problem${problems.length > 1 ? 's' : ''} to fix before saving`; st.className = 'status bad'; }
+  else if (d) { st.textContent = 'Unsaved changes'; st.className = 'status'; }
+  else { st.textContent = 'Saved'; st.className = 'status ok'; }
+  $('save').disabled = !d || problems.length > 0;
+  $('revert').disabled = !d;
+  const box = $('notices');
+  box.replaceChildren();
+  if (problems.length) {
+    box.append(el('div', { class: 'problems', role: 'alert' },
+      'Fix these to save:',
+      el('ul', {}, problems.map((p) => {
+        const i = p.indexOf(': ');
+        return el('li', {}, el('code', {}, p.slice(0, i)), ' ', p.slice(i + 2));
+      }))));
+  }
+  if (S.readError) box.append(el('div', { class: 'notice' }, S.readError));
+}
+
+// ---- Inspector ----
+function field(name, key, control, { tag, desc } = {}) {
+  return el('div', { class: 'field' },
+    el('div', { class: 'top' },
+      el('div', { class: 'name' }, name, el('span', { class: 'key' }, key), tag ? el('span', { class: 'tag' }, tag) : null),
+      control.top ?? null),
+    control.below ?? null,
+    desc ? el('div', { class: 'key' }, desc) : null);
+}
+
+function toggle(checked, onchange, label) {
+  return el('label', { class: 'switch' },
+    el('input', { type: 'checkbox', checked: checked ? true : false, 'aria-label': label, onchange: (e) => onchange(e.target.checked) }),
+    el('span'));
+}
+
+function numberInput(value, spec, onchange, label) {
+  return el('input', {
+    type: 'number', value: value ?? '', placeholder: spec.default ?? '', min: spec.min, max: spec.max,
+    step: spec.type === 'integer' ? 1 : 'any', 'aria-label': label,
+    onchange: (e) => onchange(e.target.value === '' ? undefined : Number(e.target.value)),
+  });
+}
+
+// Builds the editor for one option from its SPEC entry
+function optionControl(spec, value, onchange, label) {
+  switch (spec.type) {
+    case 'boolean':
+      return { top: toggle(value, onchange, label) };
+    case 'number':
+    case 'integer':
+      return { top: numberInput(value, spec, onchange, label) };
+    case 'list':
+      return {
+        below: el('div', { class: 'row' }, spec.items.map((item) => el('label', {},
+          el('input', {
+            type: 'checkbox', checked: (value ?? []).includes(item) ? true : false,
+            onchange: (e) => onchange(spec.items.filter((x) => (x === item ? e.target.checked : (value ?? []).includes(x)))),
+          }), item))),
+      };
+    case 'color': {
+      const names = Object.keys(palette());
+      const isHex = /^#[0-9a-f]{6}$/i.test(value ?? '');
+      const select = el('select', { 'aria-label': label, onchange: (e) => onchange(e.target.value === 'custom' ? resolveColor(value ?? 'fg') : e.target.value) },
+        names.map((n) => el('option', { value: n, selected: n === value ? true : false }, n)),
+        el('option', { value: 'custom', selected: isHex ? true : false }, 'Custom…'));
+      const top = el('span', { class: 'swatch' }, select,
+        isHex ? el('input', { type: 'color', value, 'aria-label': `${label} custom color`, onchange: (e) => onchange(e.target.value) }) : null);
+      return { top };
+    }
+    default:
+      return { below: el('input', { type: 'text', value: value ?? '', placeholder: spec.required ? 'required' : '', 'aria-label': label, onchange: (e) => onchange(e.target.value === '' && !spec.required ? undefined : e.target.value) }) };
+  }
+}
+
+function segmentPane() {
+  const entry = sel && entryAt(sel.li, sel.ei);
+  if (!entry) return [el('p', { class: 'placeholder' }, 'Select a segment in the layout to change its options.')];
+  const { li, ei } = sel;
+  const id = idOf(entry);
+  const spec = S.spec.segments[id];
+  if (!spec) return [el('h3', {}, `Unknown segment "${id}"`), el('p', { class: 'desc' }, 'Remove it, or fix the id in the config file.')];
+  const l = lines();
+  const out = [
+    el('h3', {}, NAMES[id] ?? id),
+    el('p', { class: 'desc' }, spec.desc),
+    el('div', { class: 'where' },
+      el('span', {}, `Line ${li + 1}, position ${ei + 1}`),
+      el('button', { class: 'btn small', disabled: ei === 0, onclick: () => move(li, ei, li, ei - 1), 'aria-label': 'Move left' }, '←'),
+      el('button', { class: 'btn small', disabled: ei === l[li].length - 1, onclick: () => move(li, ei, li, ei + 2), 'aria-label': 'Move right' }, '→'),
+      el('button', { class: 'btn small', disabled: li === 0, onclick: () => move(li, ei, li - 1, l[li - 1].length), 'aria-label': 'Move to the line above' }, '↑'),
+      el('button', { class: 'btn small', disabled: li === l.length - 1, onclick: () => move(li, ei, li + 1, l[li + 1].length), 'aria-label': 'Move to the line below' }, '↓'),
+      el('button', { class: 'btn small danger', onclick: () => removeAt(li, ei) }, 'Remove')),
+  ];
+  const opts = Object.entries(spec.options);
+  if (!opts.length) return [...out, el('p', { class: 'placeholder' }, 'This segment has no options.')];
+  if (id !== 'command') out.push(el('p', { class: 'scope' }, `Changes apply wherever ${NAMES[id]} appears.`));
+  for (const [key, o] of opts) {
+    const inlineHere = id !== 'command' && isObj(entry) && key in entry;
+    out.push(field(o.desc, key, optionControl(o, optValue(entry, key), (v) => setOpt(li, ei, key, v), o.desc), { tag: inlineHere ? 'Only here' : null }));
+  }
+  return out;
+}
+
+function generalPane() {
+  const st = S.spec.settings;
+  const val = (k) => config[k] ?? S.defaults[k];
+  const handoff = el('input', { type: 'range', min: 20, max: 95, step: 1, value: val('handoffPct'), 'aria-label': 'Handoff percentage',
+    oninput: (e) => { handoffNum.value = e.target.value; }, onchange: (e) => setTop('handoffPct', Number(e.target.value)) });
+  const handoffNum = numberInput(config.handoffPct, st.handoffPct, (v) => setTop('handoffPct', v), 'Handoff percentage');
+  const sep = val('separator');
+  return [
+    el('div', { class: 'section' },
+      el('h4', {}, 'Handoff'),
+      field(st.handoffPct.desc, 'handoffPct', { top: handoffNum, below: handoff }),
+      field(st.warnBelow.desc, 'warnBelow', { top: numberInput(config.warnBelow, st.warnBelow, (v) => setTop('warnBelow', v), 'Warning offset') })),
+    el('div', { class: 'section' },
+      el('h4', {}, 'Separator'),
+      field(st.separator.desc, 'separator', {
+        below: [
+          el('div', { class: 'row' }, SEPARATORS.map(([s, name]) => el('button', {
+            class: 'btn small', 'aria-pressed': String(sep === s),
+            style: sep === s ? 'border-color: var(--accent); color: var(--accent)' : '',
+            onclick: () => setTop('separator', s),
+          }, name, ' ', el('span', { class: 'mono' }, `a${s}b`)))),
+          el('input', { type: 'text', value: sep, 'aria-label': 'Custom separator', onchange: (e) => setTop('separator', e.target.value) }),
+        ],
+      })),
+  ];
+}
+
+// Icon fields show Nerd Font glyphs as their code point (f2db) since they don't render in most UI fonts
+const toCode = (s) => ([...s].length === 1 && s.codePointAt(0) >= 0xe000 ? s.codePointAt(0).toString(16) : s);
+const fromCode = (s) => (/^(u\+|\\u)?[0-9a-f]{4,5}$/i.test(s) ? String.fromCodePoint(parseInt(s.replace(/^(u\+|\\u)/i, ''), 16)) : s);
+
+function themePane() {
+  const colors = isObj(config.colors) ? config.colors : {};
+  const icons = isObj(config.icons) ? config.icons : {};
+  const custom = Object.keys(colors).filter((k) => !(k in S.palette));
+  const swatch = (name, value, isDefault) => el('div', { class: 'swatch' },
+    el('input', { type: 'color', value, 'aria-label': `${name} color`, onchange: (e) => setIn('colors', name, e.target.value) }),
+    el('span', { class: 'nm' }, name, el('span', { class: 'hex' }, value)),
+    isDefault ? null : el('button', { class: 'reset', onclick: () => setIn('colors', name, undefined) }, name in S.palette ? 'Reset' : 'Delete'));
+  const nameInput = el('input', { type: 'text', placeholder: 'New color name', 'aria-label': 'New color name' });
+  return [
+    el('div', { class: 'section' },
+      el('h4', {}, 'Palette'),
+      el('p', { class: 'hintline' }, 'Segments use these names. Command segments can use any of them, including ones you add.'),
+      el('div', { class: 'swatches' },
+        Object.entries(S.palette).map(([n, v]) => swatch(n, colors[n] ?? v, !(n in colors) || colors[n].toLowerCase() === v.toLowerCase())),
+        custom.map((n) => swatch(n, colors[n], false))),
+      el('div', { class: 'addcolor' }, nameInput, el('button', {
+        class: 'btn small',
+        onclick: () => { const n = nameInput.value.trim(); if (/^[\w-]+$/.test(n) && !(n in palette())) setIn('colors', n, '#c0caf5'); },
+      }, 'Add color'))),
+    el('div', { class: 'section' },
+      el('h4', {}, 'Icons'),
+      el('p', { class: 'hintline' }, 'Type a Nerd Font code point like f2db, or paste any text.'),
+      Object.entries(S.icons).map(([n, def]) => {
+        const v = icons[n] ?? def;
+        return el('div', { class: 'icon-row' },
+          el('span', { class: 'glyph', 'aria-hidden': 'true' }, v),
+          el('span', { class: 'nm' }, n),
+          el('input', { type: 'text', value: toCode(v), 'aria-label': `${n} icon`, onchange: (e) => setIn('icons', n, e.target.value === '' ? undefined : fromCode(e.target.value)) }),
+          n in icons && icons[n] !== def ? el('button', { class: 'reset', onclick: () => setIn('icons', n, undefined) }, 'Reset') : el('span', { class: 'reset' }));
+      })),
+  ];
+}
+
+function renderPane() {
+  const pane = $('pane');
+  const focusKey = document.activeElement?.getAttribute('aria-label');
+  pane.replaceChildren(...(tab === 'segment' ? segmentPane() : tab === 'general' ? generalPane() : themePane()));
+  if (focusKey) pane.querySelector(`[aria-label="${CSS.escape(focusKey)}"]`)?.focus();
+}
+
+// ---- Preview ----
+let previewTimer;
+let previewSeq = 0;
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    const seq = ++previewSeq;
+    try {
+      const { data } = await api('/api/preview', { config, scenario });
+      if (seq !== previewSeq) return;
+      $('screen').innerHTML = data.lines.map((l) => `<div>${l || '&nbsp;'}</div>`).join('');
+      // Refresh only what problems affect, so a field being typed in isn't rebuilt under the cursor
+      problems = data.problems;
+      renderRails();
+      renderStatus();
+    } catch (e) {
+      $('screen').textContent = `Preview unavailable: ${e.message}. Is configure.js still running?`;
+    }
+  }, 120);
+}
+
+// ---- Actions ----
+async function save() {
+  if ($('save').disabled) return;
+  const { ok, data } = await api('/api/save', { config });
+  if (!ok) { problems = data.problems ?? []; render(); return; }
+  config = data.config;
+  saved = JSON.stringify(config);
+  S.readError = null;
+  render();
+  $('status').textContent = data.backup ? `Saved. The previous version is in ${data.backup.split('/').pop()}.` : 'Saved.';
+}
+
+async function init() {
+  const { data } = await api('/api/state');
+  S = data;
+  S.readError = data.error ?? null;
+  config = data.config;
+  saved = JSON.stringify(config);
+  $('path').textContent = data.path.replace(/^\/(Users|home)\/[^/]+/, '~');
+  $('fonthint').textContent = data.font ? 'Shown in your Nerd Font' : 'No Nerd Font found, so icons may not show here';
+  render();
+  schedulePreview();
+}
+
+document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; render(); }));
+document.querySelectorAll('.scenarios button').forEach((b) => b.addEventListener('click', () => {
+  scenario = b.dataset.s;
+  document.querySelectorAll('.scenarios button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  schedulePreview();
+}));
+$('addline').addEventListener('click', () => { const l = lines(); l.push([]); setLines(l); changed(); });
+$('save').addEventListener('click', save);
+$('revert').addEventListener('click', () => { config = JSON.parse(saved); sel = null; if (tab === 'segment') tab = 'general'; changed(); });
+$('done').addEventListener('click', async () => {
+  if (dirty() && !confirm('Discard unsaved changes and stop the configurator?')) return;
+  window.onbeforeunload = null;
+  await api('/api/quit').catch(() => {});
+  document.body.replaceChildren(el('div', { class: 'stopped' }, el('h1', {}, 'Configurator stopped'), el('p', {}, 'You can close this tab. Run node configure.js to open it again.')));
+});
+document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); save(); } });
+window.onbeforeunload = (e) => { if (dirty()) { e.preventDefault(); return ''; } };
+
+init().catch((e) => { $('screen').textContent = `Couldn't load: ${e.message}`; });
+</script>
+</body>
+</html>

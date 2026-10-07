@@ -1,0 +1,666 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/wilsyn-git/claudeStatusLine/main/statusLine.schema.json",
+  "title": "claudeStatusLine config",
+  "description": "Layout and options for claudeStatusLine. Every key is optional and merges over the built-in defaults.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "handoffPct": {
+      "description": "Context percentage at which to hand off to a fresh session. The HANDOFF_PCT env var overrides it.",
+      "default": 60,
+      "type": "number",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "warnBelow": {
+      "description": "Context turns yellow this many points below handoffPct.",
+      "default": 15,
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "separator": {
+      "description": "Text between segments.",
+      "default": " │ ",
+      "type": "string"
+    },
+    "lines": {
+      "description": "One list per output line, naming segments in order. An entry is a segment id, or {\"id\": ..., options} to override options in that one place.",
+      "default": [
+        [
+          "model",
+          "context",
+          "handoff",
+          "tokens"
+        ],
+        [
+          "cache",
+          "limits",
+          "cost",
+          "git"
+        ]
+      ],
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "anyOf": [
+            {
+              "enum": [
+                "model",
+                "context",
+                "handoff",
+                "tokens",
+                "cache",
+                "limits",
+                "cost",
+                "git",
+                "command"
+              ],
+              "description": "A segment id"
+            },
+            {
+              "type": "object",
+              "description": "Model name colored by family, reasoning effort, and a bolt when fast mode is on. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "model"
+                },
+                "effort": {
+                  "description": "Show the reasoning effort level.",
+                  "default": true,
+                  "type": "boolean"
+                },
+                "fast": {
+                  "description": "Show a bolt when fast mode is on.",
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Context used vs. window size; yellow near the handoff target, red past it. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "context"
+                },
+                "barCells": {
+                  "description": "Width of the bar in cells.",
+                  "default": 10,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 40
+                },
+                "turnDelta": {
+                  "description": "Show this turn's context growth (+N).",
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Tokens left before the handoff target, or \"handoff now\" once past it. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "handoff"
+                },
+                "turnEstimate": {
+                  "description": "Estimate turns left from the average growth of recent turns.",
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Last request: newly processed input, output, and cache read. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "tokens"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Prompt cache time left (or cold plus the tokens a re-cache would bill), hit ratio, misses. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "cache"
+                },
+                "hitRatio": {
+                  "description": "Show the cache hit ratio.",
+                  "default": true,
+                  "type": "boolean"
+                },
+                "misses": {
+                  "description": "Show the cache miss count.",
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Plan usage for the 5-hour and weekly windows. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "limits"
+                },
+                "windows": {
+                  "description": "Which windows to show, in order.",
+                  "default": [
+                    "5h",
+                    "wk"
+                  ],
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "5h",
+                      "wk"
+                    ]
+                  },
+                  "uniqueItems": true
+                },
+                "showResetAbove": {
+                  "description": "Show the reset countdown at or above this percentage.",
+                  "default": 50,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "warn": {
+                  "description": "Yellow at or above this percentage.",
+                  "default": 50,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "bad": {
+                  "description": "Red at or above this percentage.",
+                  "default": 80,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Session cost and burn rate per hour. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "cost"
+                },
+                "burnRate": {
+                  "description": "Show the burn rate per hour.",
+                  "default": true,
+                  "type": "boolean"
+                },
+                "burnRateAfterMin": {
+                  "description": "Minutes into the session before the burn rate appears.",
+                  "default": 5,
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Branch, dirty file count, ahead/behind, and lines added/removed this session. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "git"
+                },
+                "lineDelta": {
+                  "description": "Show lines added/removed this session.",
+                  "default": true,
+                  "type": "boolean"
+                },
+                "timeoutMs": {
+                  "description": "Give up on git after this many milliseconds.",
+                  "default": 500,
+                  "type": "integer",
+                  "minimum": 50,
+                  "maximum": 5000
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "First line of output from a shell command, run in the session directory. Can be used more than once. Options set here apply to this placement only.",
+              "required": [
+                "id",
+                "cmd"
+              ],
+              "properties": {
+                "id": {
+                  "const": "command"
+                },
+                "cmd": {
+                  "description": "Shell command to run.",
+                  "type": "string"
+                },
+                "icon": {
+                  "description": "Text shown before the output.",
+                  "type": "string"
+                },
+                "color": {
+                  "description": "Palette name or #rrggbb.",
+                  "default": "fg",
+                  "type": "string",
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "fg",
+                        "dim",
+                        "blue",
+                        "cyan",
+                        "purple",
+                        "green",
+                        "yellow",
+                        "orange",
+                        "red",
+                        "teal",
+                        "magenta"
+                      ]
+                    },
+                    {
+                      "pattern": "^#[0-9a-fA-F]{6}$",
+                      "format": "color-hex"
+                    },
+                    {
+                      "description": "A name defined under \"colors\""
+                    }
+                  ]
+                },
+                "timeoutMs": {
+                  "description": "Give up on the command after this many milliseconds.",
+                  "default": 300,
+                  "type": "integer",
+                  "minimum": 50,
+                  "maximum": 5000
+                },
+                "cacheSec": {
+                  "description": "Reuse the last result (including a failure) for this many seconds.",
+                  "default": 30,
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      }
+    },
+    "segments": {
+      "description": "Default options per segment id.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "description": "Model name colored by family, reasoning effort, and a bolt when fast mode is on.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "effort": {
+              "description": "Show the reasoning effort level.",
+              "default": true,
+              "type": "boolean"
+            },
+            "fast": {
+              "description": "Show a bolt when fast mode is on.",
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        },
+        "context": {
+          "description": "Context used vs. window size; yellow near the handoff target, red past it.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "barCells": {
+              "description": "Width of the bar in cells.",
+              "default": 10,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 40
+            },
+            "turnDelta": {
+              "description": "Show this turn's context growth (+N).",
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        },
+        "handoff": {
+          "description": "Tokens left before the handoff target, or \"handoff now\" once past it.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "turnEstimate": {
+              "description": "Estimate turns left from the average growth of recent turns.",
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        },
+        "tokens": {
+          "description": "Last request: newly processed input, output, and cache read.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        },
+        "cache": {
+          "description": "Prompt cache time left (or cold plus the tokens a re-cache would bill), hit ratio, misses.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hitRatio": {
+              "description": "Show the cache hit ratio.",
+              "default": true,
+              "type": "boolean"
+            },
+            "misses": {
+              "description": "Show the cache miss count.",
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        },
+        "limits": {
+          "description": "Plan usage for the 5-hour and weekly windows.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "windows": {
+              "description": "Which windows to show, in order.",
+              "default": [
+                "5h",
+                "wk"
+              ],
+              "type": "array",
+              "items": {
+                "enum": [
+                  "5h",
+                  "wk"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "showResetAbove": {
+              "description": "Show the reset countdown at or above this percentage.",
+              "default": 50,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "warn": {
+              "description": "Yellow at or above this percentage.",
+              "default": 50,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "bad": {
+              "description": "Red at or above this percentage.",
+              "default": 80,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        },
+        "cost": {
+          "description": "Session cost and burn rate per hour.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "burnRate": {
+              "description": "Show the burn rate per hour.",
+              "default": true,
+              "type": "boolean"
+            },
+            "burnRateAfterMin": {
+              "description": "Minutes into the session before the burn rate appears.",
+              "default": 5,
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "git": {
+          "description": "Branch, dirty file count, ahead/behind, and lines added/removed this session.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lineDelta": {
+              "description": "Show lines added/removed this session.",
+              "default": true,
+              "type": "boolean"
+            },
+            "timeoutMs": {
+              "description": "Give up on git after this many milliseconds.",
+              "default": 500,
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 5000
+            }
+          }
+        },
+        "command": {
+          "description": "First line of output from a shell command, run in the session directory. Can be used more than once.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cmd": {
+              "description": "Shell command to run.",
+              "type": "string"
+            },
+            "icon": {
+              "description": "Text shown before the output.",
+              "type": "string"
+            },
+            "color": {
+              "description": "Palette name or #rrggbb.",
+              "default": "fg",
+              "type": "string",
+              "anyOf": [
+                {
+                  "enum": [
+                    "fg",
+                    "dim",
+                    "blue",
+                    "cyan",
+                    "purple",
+                    "green",
+                    "yellow",
+                    "orange",
+                    "red",
+                    "teal",
+                    "magenta"
+                  ]
+                },
+                {
+                  "pattern": "^#[0-9a-fA-F]{6}$",
+                  "format": "color-hex"
+                },
+                {
+                  "description": "A name defined under \"colors\""
+                }
+              ]
+            },
+            "timeoutMs": {
+              "description": "Give up on the command after this many milliseconds.",
+              "default": 300,
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 5000
+            },
+            "cacheSec": {
+              "description": "Reuse the last result (including a failure) for this many seconds.",
+              "default": 30,
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "colors": {
+      "description": "Palette overrides as #rrggbb. New names can be used as a command segment color.",
+      "type": "object",
+      "properties": {
+        "fg": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#c0caf5"
+        },
+        "dim": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#565f89"
+        },
+        "blue": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#7aa2f7"
+        },
+        "cyan": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#7dcfff"
+        },
+        "purple": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#bb9af7"
+        },
+        "green": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#9ece6a"
+        },
+        "yellow": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#e0af68"
+        },
+        "orange": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#ff9e64"
+        },
+        "red": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#f7768e"
+        },
+        "teal": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#73daca"
+        },
+        "magenta": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#ff007c"
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "format": "color-hex",
+        "pattern": "^#[0-9a-fA-F]{6}$"
+      }
+    },
+    "icons": {
+      "description": "Icon overrides. Defaults are Nerd Font glyphs.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "default": ""
+        },
+        "fast": {
+          "type": "string",
+          "default": ""
+        },
+        "flag": {
+          "type": "string",
+          "default": ""
+        },
+        "warn": {
+          "type": "string",
+          "default": ""
+        },
+        "clock": {
+          "type": "string",
+          "default": ""
+        },
+        "cache": {
+          "type": "string",
+          "default": ""
+        },
+        "gauge": {
+          "type": "string",
+          "default": ""
+        },
+        "branch": {
+          "type": "string",
+          "default": ""
+        }
+      }
+    }
+  }
+}
