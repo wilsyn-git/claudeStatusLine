@@ -3,8 +3,12 @@
 // Default layout:
 //   1. model · effort │ context bar vs. handoff target │ room/turns to handoff │ token mix
 //   2. prompt cache │ plan limits │ cost │ git
-// Layout and per-segment options come from DEFAULTS, overridden by ~/.claude/statusLine.json (or $STATUSLINE_CONFIG).
+// Layout and per-segment options come from SPEC defaults, overridden by ~/.claude/statusLine.json (or $STATUSLINE_CONFIG).
 // Context thresholds are keyed to handoffPct (default 60): refresh the session there instead of compacting.
+//
+//   node statusLine.js            render (Claude Code runs this on every refresh)
+//   node statusLine.js --check    validate the config file and preview it
+//   node statusLine.js --schema   print the config JSON Schema (committed as statusLine.schema.json)
 'use strict';
 
 const fs = require('fs');
@@ -16,44 +20,116 @@ const { execFileSync, execSync } = require('child_process');
 const HISTORY_TURNS = 10;
 const STATE_DIR = path.join(os.tmpdir(), 'claudeStatusLine');
 const CONFIG_FILE = process.env.STATUSLINE_CONFIG || path.join(os.homedir(), '.claude', 'statusLine.json');
-
-// Every key here can be overridden from the config file. Objects merge key by key; arrays and scalars replace.
-const DEFAULTS = {
-  handoffPct: 60,
-  warnBelow: 15,
-  separator: ' │ ',
-  lines: [
-    ['model', 'context', 'handoff', 'tokens'],
-    ['cache', 'limits', 'cost', 'git'],
-  ],
-  segments: {
-    model: { effort: true, fast: true },
-    context: { barCells: 10, turnDelta: true },
-    handoff: { turnEstimate: true },
-    tokens: {},
-    cache: { hitRatio: true, misses: true },
-    limits: { windows: ['5h', 'wk'], showResetAbove: 50, warn: 50, bad: 80 },
-    cost: { burnRate: true, burnRateAfterMin: 5 },
-    git: { lineDelta: true, timeoutMs: 500 },
-    command: { timeoutMs: 300, cacheSec: 30, color: 'fg' },
-  },
-  colors: {},
-  icons: {},
-};
+const SCHEMA_URL = 'https://raw.githubusercontent.com/wilsyn-git/claudeStatusLine/main/statusLine.schema.json';
 
 // TokyoNight Night palette
-const C = {
+const PALETTE = {
   fg: '#c0caf5', dim: '#565f89', blue: '#7aa2f7', cyan: '#7dcfff', purple: '#bb9af7', green: '#9ece6a',
   yellow: '#e0af68', orange: '#ff9e64', red: '#f7768e', teal: '#73daca', magenta: '#ff007c',
 };
 
 // Nerd Font glyphs from the Font Awesome 4 and Powerline ranges, which are stable across Nerd Font v2 and v3
-const I = {
+const ICONS = {
   model: '', fast: '', flag: '', warn: '', clock: '',
   cache: '', gauge: '', branch: '',
 };
 
-const EFFORT_COLORS = { low: C.dim, medium: C.blue, high: C.yellow, xhigh: C.orange, max: C.magenta };
+// The active palette and icons: the defaults above plus config overrides, reapplied on each render
+const C = { ...PALETTE };
+const I = { ...ICONS };
+
+const EFFORT_COLORS = { low: 'dim', medium: 'blue', high: 'yellow', xhigh: 'orange', max: 'magenta' };
+const LIMIT_WINDOWS = { '5h': 'five_hour', wk: 'seven_day' };
+
+// Every configurable setting with its type, default and description. DEFAULTS, validation, the JSON Schema
+// and the visual configurator (configure.js) are all derived from this table, so a new option goes here only.
+const SPEC = {
+  settings: {
+    handoffPct: { type: 'number', min: 1, max: 100, default: 60, desc: 'Context percentage at which to hand off to a fresh session. The HANDOFF_PCT env var overrides it.' },
+    warnBelow: { type: 'number', min: 0, max: 100, default: 15, desc: 'Context turns yellow this many points below handoffPct.' },
+    separator: { type: 'string', default: ' │ ', desc: 'Text between segments.' },
+  },
+  lines: [
+    ['model', 'context', 'handoff', 'tokens'],
+    ['cache', 'limits', 'cost', 'git'],
+  ],
+  segments: {
+    model: {
+      desc: 'Model name colored by family, reasoning effort, and a bolt when fast mode is on.',
+      options: {
+        effort: { type: 'boolean', default: true, desc: 'Show the reasoning effort level.' },
+        fast: { type: 'boolean', default: true, desc: 'Show a bolt when fast mode is on.' },
+      },
+    },
+    context: {
+      desc: 'Context used vs. window size; yellow near the handoff target, red past it.',
+      options: {
+        barCells: { type: 'integer', min: 1, max: 40, default: 10, desc: 'Width of the bar in cells.' },
+        turnDelta: { type: 'boolean', default: true, desc: "Show this turn's context growth (+N)." },
+      },
+    },
+    handoff: {
+      desc: 'Tokens left before the handoff target, or "handoff now" once past it.',
+      options: {
+        turnEstimate: { type: 'boolean', default: true, desc: 'Estimate turns left from the average growth of recent turns.' },
+      },
+    },
+    tokens: { desc: 'Last request: newly processed input, output, and cache read.', options: {} },
+    cache: {
+      desc: 'Prompt cache time left (or cold plus the tokens a re-cache would bill), hit ratio, misses.',
+      options: {
+        hitRatio: { type: 'boolean', default: true, desc: 'Show the cache hit ratio.' },
+        misses: { type: 'boolean', default: true, desc: 'Show the cache miss count.' },
+      },
+    },
+    limits: {
+      desc: 'Plan usage for the 5-hour and weekly windows.',
+      options: {
+        windows: { type: 'list', items: Object.keys(LIMIT_WINDOWS), default: ['5h', 'wk'], desc: 'Which windows to show, in order.' },
+        showResetAbove: { type: 'number', min: 0, max: 100, default: 50, desc: 'Show the reset countdown at or above this percentage.' },
+        warn: { type: 'number', min: 0, max: 100, default: 50, desc: 'Yellow at or above this percentage.' },
+        bad: { type: 'number', min: 0, max: 100, default: 80, desc: 'Red at or above this percentage.' },
+      },
+    },
+    cost: {
+      desc: 'Session cost and burn rate per hour.',
+      options: {
+        burnRate: { type: 'boolean', default: true, desc: 'Show the burn rate per hour.' },
+        burnRateAfterMin: { type: 'number', min: 0, default: 5, desc: 'Minutes into the session before the burn rate appears.' },
+      },
+    },
+    git: {
+      desc: 'Branch, dirty file count, ahead/behind, and lines added/removed this session.',
+      options: {
+        lineDelta: { type: 'boolean', default: true, desc: 'Show lines added/removed this session.' },
+        timeoutMs: { type: 'integer', min: 50, max: 5000, default: 500, desc: 'Give up on git after this many milliseconds.' },
+      },
+    },
+    command: {
+      multi: true,
+      desc: 'First line of output from a shell command, run in the session directory. Can be used more than once.',
+      options: {
+        cmd: { type: 'string', required: true, desc: 'Shell command to run.' },
+        icon: { type: 'string', desc: 'Text shown before the output.' },
+        color: { type: 'color', default: 'fg', desc: 'Palette name or #rrggbb.' },
+        timeoutMs: { type: 'integer', min: 50, max: 5000, default: 300, desc: 'Give up on the command after this many milliseconds.' },
+        cacheSec: { type: 'number', min: 0, default: 30, desc: 'Reuse the last result (including a failure) for this many seconds.' },
+      },
+    },
+  },
+};
+
+const defaultsOf = (options) =>
+  Object.fromEntries(Object.entries(options).filter(([, o]) => 'default' in o).map(([k, o]) => [k, o.default]));
+
+// Every key here can be overridden from the config file. Objects merge key by key; arrays and scalars replace.
+const DEFAULTS = {
+  ...defaultsOf(SPEC.settings),
+  lines: SPEC.lines,
+  segments: Object.fromEntries(Object.entries(SPEC.segments).map(([id, s]) => [id, defaultsOf(s.options)])),
+  colors: {},
+  icons: {},
+};
 
 const isObject = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
 const isHex = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
@@ -65,32 +141,126 @@ function merge(base, over) {
   return out;
 }
 
-// Never throws: a missing file means defaults, a broken one means defaults plus a warning on line 1.
-function loadConfig() {
-  let user = {};
-  let error = null;
-  try {
-    user = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-    if (!isObject(user)) throw new Error('top level must be an object');
-  } catch (e) {
-    if (e.code !== 'ENOENT') error = e.message;
-    user = {};
+// Returns a list of "path: problem" strings; empty means the config is valid.
+function validate(user) {
+  if (!isObject(user)) return ['top level must be an object'];
+  const problems = [];
+  const bad = (p, msg) => problems.push(`${p}: ${msg}`);
+  const colorNames = new Set([...Object.keys(PALETTE), ...(isObject(user.colors) ? Object.keys(user.colors) : [])]);
+  const unknown = (p, what, key, known) => {
+    const near = known.find((k) => k.toLowerCase() === key.toLowerCase());
+    bad(p, near ? `unknown ${what} "${key}", did you mean "${near}"?` : `unknown ${what} "${key}" (expected one of ${known.join(', ')})`);
+  };
+
+  const checkValue = (p, spec, v) => {
+    switch (spec.type) {
+      case 'boolean':
+        if (typeof v !== 'boolean') bad(p, 'must be true or false');
+        return;
+      case 'number':
+      case 'integer':
+        if (typeof v !== 'number' || !Number.isFinite(v)) return bad(p, 'must be a number');
+        if (spec.type === 'integer' && !Number.isInteger(v)) return bad(p, 'must be a whole number');
+        if (spec.min != null && v < spec.min) bad(p, `must be at least ${spec.min}`);
+        if (spec.max != null && v > spec.max) bad(p, `must be at most ${spec.max}`);
+        return;
+      case 'string':
+        if (typeof v !== 'string') bad(p, 'must be a string');
+        return;
+      case 'color':
+        if (!isHex(v) && !colorNames.has(v)) bad(p, `must be #rrggbb or a palette name (${[...colorNames].join(', ')})`);
+        return;
+      case 'list':
+        if (!Array.isArray(v)) return bad(p, `must be a list of ${spec.items.join(', ')}`);
+        v.forEach((x, i) => spec.items.includes(x) || bad(`${p}[${i}]`, `must be one of ${spec.items.join(', ')}`));
+    }
+  };
+
+  const checkOptions = (p, id, opts, skip = []) => {
+    const specs = SPEC.segments[id].options;
+    for (const [k, v] of Object.entries(opts)) {
+      if (skip.includes(k)) continue;
+      if (specs[k]) checkValue(`${p}.${k}`, specs[k], v);
+      else unknown(p, 'option', k, Object.keys(specs));
+    }
+  };
+
+  for (const [k, v] of Object.entries(user)) {
+    if (k === '$schema') continue;
+    if (SPEC.settings[k]) checkValue(k, SPEC.settings[k], v);
+    else if (k === 'lines') {
+      if (!Array.isArray(v) || !v.every(Array.isArray)) {
+        bad('lines', 'must be a list of lines, each a list of segments');
+        continue;
+      }
+      v.forEach((line, li) =>
+        line.forEach((entry, ei) => {
+          const p = `lines[${li}][${ei}]`;
+          const id = typeof entry === 'string' ? entry : isObject(entry) ? entry.id : undefined;
+          if (typeof id !== 'string') return bad(p, 'must be a segment id or an object with an "id"');
+          if (!SPEC.segments[id]) return unknown(p, 'segment', id, Object.keys(SPEC.segments));
+          if (isObject(entry)) checkOptions(p, id, entry, ['id']);
+          if (id === 'command' && !(isObject(entry) && entry.cmd) && !user.segments?.command?.cmd) bad(p, 'command needs a "cmd"');
+        })
+      );
+    } else if (k === 'segments') {
+      if (!isObject(v)) {
+        bad('segments', 'must be an object keyed by segment id');
+        continue;
+      }
+      for (const [id, opts] of Object.entries(v)) {
+        if (!SPEC.segments[id]) unknown('segments', 'segment', id, Object.keys(SPEC.segments));
+        else if (!isObject(opts)) bad(`segments.${id}`, 'must be an object of options');
+        else checkOptions(`segments.${id}`, id, opts);
+      }
+    } else if (k === 'colors') {
+      if (!isObject(v)) bad('colors', 'must be an object of name: "#rrggbb"');
+      else for (const [name, hex] of Object.entries(v)) if (!isHex(hex)) bad(`colors.${name}`, 'must be #rrggbb');
+    } else if (k === 'icons') {
+      if (!isObject(v)) bad('icons', 'must be an object of name: "glyph"');
+      else
+        for (const [name, glyph] of Object.entries(v)) {
+          if (!ICONS[name]) unknown('icons', 'icon', name, Object.keys(ICONS));
+          else if (typeof glyph !== 'string') bad(`icons.${name}`, 'must be a string');
+        }
+    } else unknown('(top level)', 'setting', k, ['$schema', ...Object.keys(SPEC.settings), 'lines', 'segments', 'colors', 'icons']);
   }
-  const cfg = merge(DEFAULTS, user);
-  if (!Array.isArray(cfg.lines) || !cfg.lines.every(Array.isArray)) {
-    error = '"lines" must be an array of arrays';
-    cfg.lines = DEFAULTS.lines;
-  }
+  return problems;
+}
+
+// Merges a parsed config over DEFAULTS, keeping whatever is usable from an invalid one. Never throws.
+function resolveConfig(user) {
+  const problems = validate(user);
+  const cfg = merge(DEFAULTS, isObject(user) ? user : {});
+  if (!Array.isArray(cfg.lines) || !cfg.lines.every(Array.isArray)) cfg.lines = DEFAULTS.lines;
+  if (typeof cfg.separator !== 'string') cfg.separator = DEFAULTS.separator;
   if (process.env.HANDOFF_PCT) cfg.handoffPct = Number(process.env.HANDOFF_PCT) || cfg.handoffPct;
   cfg.handoffPct = Number(cfg.handoffPct) || DEFAULTS.handoffPct;
   cfg.warnPct = cfg.handoffPct - (Number(cfg.warnBelow) || 0);
+  return { cfg, problems };
+}
+
+// A missing file means defaults; an unreadable or invalid one means defaults plus problems to report.
+function loadConfig(file = CONFIG_FILE) {
+  let user = {};
+  try {
+    user = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    if (e.code !== 'ENOENT') return { ...resolveConfig({}), problems: [e.message] };
+  }
+  return resolveConfig(user);
+}
+
+function applyTheme(cfg) {
+  for (const k of Object.keys(C)) delete C[k];
+  Object.assign(C, PALETTE);
   if (isObject(cfg.colors)) for (const [k, v] of Object.entries(cfg.colors)) if (isHex(v)) C[k] = v;
-  if (isObject(cfg.icons)) for (const [k, v] of Object.entries(cfg.icons)) if (typeof v === 'string') I[k] = v;
-  return { cfg, error };
+  Object.assign(I, ICONS);
+  if (isObject(cfg.icons)) for (const [k, v] of Object.entries(cfg.icons)) if (ICONS[k] && typeof v === 'string') I[k] = v;
 }
 
 // Config colors can be a palette name ("cyan") or a hex value ("#ff5555")
-const color = (v, fallback = C.fg) => (isHex(v) ? v : C[v] ?? fallback);
+const color = (v, fallback = C.fg) => (isHex(v) ? v : Object.hasOwn(C, v) ? C[v] : fallback);
 
 function paint(hex, text, bold = false) {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
@@ -169,7 +339,7 @@ function modelSegment({ d }, o) {
   const color = /opus/i.test(id) ? C.purple : /sonnet/i.test(id) ? C.blue : /haiku/i.test(id) ? C.green : /fable/i.test(id) ? C.teal : C.cyan;
   let s = paint(color, `${I.model} ${name}`, true);
   const effort = d.effort?.level;
-  if (o.effort && effort) s += paint(C.dim, ' · ') + paint(EFFORT_COLORS[effort] ?? C.fg, effort);
+  if (o.effort && effort) s += paint(C.dim, ' · ') + paint(C[EFFORT_COLORS[effort]] ?? C.fg, effort);
   if (o.fast && d.fast_mode) s += ' ' + paint(C.yellow, I.fast);
   return s;
 }
@@ -226,8 +396,6 @@ function cacheSegment({ d, now }, o) {
   const color = left > 15 * 60 ? C.green : left > 5 * 60 ? C.yellow : C.orange;
   return paint(color, `${I.clock} ${fmtDuration(left)}`) + hit;
 }
-
-const LIMIT_WINDOWS = { '5h': 'five_hour', wk: 'seven_day' };
 
 function limitsSegment({ d, now }, o) {
   const rl = d.rate_limits;
@@ -292,7 +460,9 @@ function gitSegment({ d, cwd }, o) {
 
 // Runs a user-supplied shell command and shows the first line of its output. The result (including failure)
 // is cached per command and directory for cacheSec, so a slow command costs at most one run per interval.
-function commandSegment({ cwd, now }, o) {
+// In preview mode (the configurator, --check) it never runs: it shows the last cached result or a placeholder,
+// so a half-typed command can't execute.
+function commandSegment({ cwd, now, preview }, o) {
   if (typeof o.cmd !== 'string' || !o.cmd) return null;
   const key = crypto.createHash('sha1').update(`${cwd ?? ''}\0${o.cmd}`).digest('hex').slice(0, 16);
   const file = path.join(STATE_DIR, `cmd-${key}.json`);
@@ -300,7 +470,8 @@ function commandSegment({ cwd, now }, o) {
   try {
     cached = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {}
-  let text = cached && now - cached.at < (Number(o.cacheSec) || 0) ? cached.text : null;
+  let text = cached && (preview || now - cached.at < (Number(o.cacheSec) || 0)) ? cached.text : null;
+  if (text == null && preview) text = `‹${o.cmd.length > 24 ? `${o.cmd.slice(0, 23)}…` : o.cmd}›`;
   if (text == null) {
     try {
       text = execSync(o.cmd, {
@@ -347,8 +518,142 @@ function renderEntry(ctx, entry) {
   }
 }
 
+// Renders a status payload with a resolved config. `problems` (from validation) adds a warning to line 1.
+function render(d, cfg, { problems = [], preview = false } = {}) {
+  applyTheme(cfg);
+  const ctx = { d, cfg, preview, now: Date.now() / 1000, cwd: d.workspace?.current_dir ?? d.cwd, memo: {} };
+  const sep = paint(C.dim, cfg.separator);
+  const lines = cfg.lines.map((entries) => entries.map((e) => renderEntry(ctx, e)).filter(Boolean));
+  if (problems.length) {
+    if (!lines.length) lines.push([]);
+    const more = problems.length > 1 ? ` (+${problems.length - 1} more, run --check)` : '';
+    lines[0].push(paint(C.red, `${I.warn} cfg`) + paint(C.dim, ` ${problems[0]}${more}`));
+  }
+  return lines.map((l) => l.join(sep)).filter(Boolean).join('\n');
+}
+
+// Sample payloads for previews, from comfortable to past the handoff target
+function samplePayload(scenario = 'typical', cwd = process.cwd()) {
+  const now = Math.floor(Date.now() / 1000);
+  const s = {
+    typical: { pct: 31, cacheLeft: 2900, warm: true, five: 34, week: 61, cost: 4.12 },
+    warning: { pct: 52, cacheLeft: 240, warm: true, five: 72, week: 64, cost: 9.8 },
+    handoff: { pct: 64, cacheLeft: 0, warm: false, five: 91, week: 83, cost: 17.35 },
+  }[scenario] ?? {};
+  const used = s.pct * 10000;
+  return {
+    model: { id: 'claude-opus-5-5', display_name: 'Opus 5.5' },
+    effort: { level: 'high' },
+    fast_mode: true,
+    context_window: {
+      context_window_size: 1000000,
+      used_percentage: s.pct,
+      current_usage: { input_tokens: 2000, cache_creation_input_tokens: 12000, cache_read_input_tokens: used - 14000, output_tokens: 2100 },
+    },
+    prompt_cache: { caching_observed: true, warm: s.warm, expires_at: s.warm ? now + s.cacheLeft : now - 60, hit_ratio: 0.98, misses: 1, recache_tokens_if_cold: used },
+    rate_limits: {
+      five_hour: { used_percentage: s.five, resets_at: now + 9000 },
+      seven_day: { used_percentage: s.week, resets_at: now + 190000 },
+    },
+    cost: { total_cost_usd: s.cost, total_duration_ms: 3900000, total_lines_added: 120, total_lines_removed: 34 },
+    cwd,
+  };
+}
+
+function schemaFor(spec) {
+  const s = { description: spec.desc };
+  if ('default' in spec) s.default = spec.default;
+  switch (spec.type) {
+    case 'number':
+    case 'integer':
+      s.type = spec.type;
+      if (spec.min != null) s.minimum = spec.min;
+      if (spec.max != null) s.maximum = spec.max;
+      break;
+    case 'color':
+      s.type = 'string';
+      s.anyOf = [{ enum: Object.keys(PALETTE) }, { pattern: '^#[0-9a-fA-F]{6}$', format: 'color-hex' }, { description: 'A name defined under "colors"' }];
+      break;
+    case 'list':
+      Object.assign(s, { type: 'array', items: { enum: spec.items }, uniqueItems: true });
+      break;
+    default:
+      s.type = spec.type;
+  }
+  return s;
+}
+
+function toSchema() {
+  const optionProps = (id) => Object.fromEntries(Object.entries(SPEC.segments[id].options).map(([k, o]) => [k, schemaFor(o)]));
+  const ids = Object.keys(SPEC.segments);
+  const entry = {
+    anyOf: [
+      { enum: ids, description: 'A segment id' },
+      ...ids.map((id) => ({
+        type: 'object',
+        description: `${SPEC.segments[id].desc} Options set here apply to this placement only.`,
+        required: ['id', ...Object.entries(SPEC.segments[id].options).filter(([, o]) => o.required).map(([k]) => k)],
+        properties: { id: { const: id }, ...optionProps(id) },
+        additionalProperties: false,
+      })),
+    ],
+  };
+  return {
+    $schema: 'http://json-schema.org/draft-07/schema#',
+    $id: SCHEMA_URL,
+    title: 'claudeStatusLine config',
+    description: 'Layout and options for claudeStatusLine. Every key is optional and merges over the built-in defaults.',
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      $schema: { type: 'string' },
+      ...Object.fromEntries(Object.entries(SPEC.settings).map(([k, o]) => [k, schemaFor(o)])),
+      lines: {
+        description: 'One list per output line, naming segments in order. An entry is a segment id, or {"id": ..., options} to override options in that one place.',
+        default: SPEC.lines,
+        type: 'array',
+        items: { type: 'array', items: entry },
+      },
+      segments: {
+        description: 'Default options per segment id.',
+        type: 'object',
+        additionalProperties: false,
+        properties: Object.fromEntries(
+          ids.map((id) => [id, { description: SPEC.segments[id].desc, type: 'object', additionalProperties: false, properties: optionProps(id) }])
+        ),
+      },
+      colors: {
+        description: 'Palette overrides as #rrggbb. New names can be used as a command segment color.',
+        type: 'object',
+        properties: Object.fromEntries(Object.entries(PALETTE).map(([k, v]) => [k, { type: 'string', format: 'color-hex', pattern: '^#[0-9a-fA-F]{6}$', default: v }])),
+        additionalProperties: { type: 'string', format: 'color-hex', pattern: '^#[0-9a-fA-F]{6}$' },
+      },
+      icons: {
+        description: 'Icon overrides. Defaults are Nerd Font glyphs.',
+        type: 'object',
+        additionalProperties: false,
+        properties: Object.fromEntries(Object.entries(ICONS).map(([k, v]) => [k, { type: 'string', default: v }])),
+      },
+    },
+  };
+}
+
+// --check: validates the config file and previews it in all three sample scenarios. Exits 1 on problems.
+function check(file) {
+  const { cfg, problems } = loadConfig(file);
+  const exists = fs.existsSync(file);
+  const out = [`${file}${exists ? '' : ' (not found, using defaults)'}`];
+  if (problems.length) out.push(...problems.map((p) => paint(PALETTE.red, `  ✗ ${p}`)));
+  else out.push(paint(PALETTE.green, '  ✓ valid'));
+  for (const scenario of ['typical', 'warning', 'handoff']) {
+    out.push('', paint(PALETTE.dim, `${scenario}:`), render(samplePayload(scenario), cfg, { preview: true }));
+  }
+  process.stdout.write(out.join('\n') + '\n');
+  process.exitCode = problems.length ? 1 : 0;
+}
+
 function main() {
-  const { cfg, error } = loadConfig();
+  const { cfg, problems } = loadConfig();
   let d;
   try {
     d = JSON.parse(fs.readFileSync(0, 'utf8'));
@@ -356,18 +661,18 @@ function main() {
     process.stdout.write(paint(C.red, `statusLine: bad input (${e.message})`));
     return;
   }
-  const ctx = { d, cfg, now: Date.now() / 1000, cwd: d.workspace?.current_dir ?? d.cwd, memo: {} };
-  const sep = paint(C.dim, typeof cfg.separator === 'string' ? cfg.separator : DEFAULTS.separator);
-  const lines = cfg.lines.map((entries) => entries.map((e) => renderEntry(ctx, e)).filter(Boolean));
-  if (error) {
-    if (!lines.length) lines.push([]);
-    lines[0].push(paint(C.red, `${I.warn} cfg`) + paint(C.dim, ` ${error}`));
-  }
-  process.stdout.write(lines.map((l) => l.join(sep)).filter(Boolean).join('\n'));
+  process.stdout.write(render(d, cfg, { problems }));
 }
 
-try {
-  main();
-} catch (e) {
-  process.stdout.write(`statusLine error: ${e.message}`);
+module.exports = { SPEC, DEFAULTS, PALETTE, ICONS, CONFIG_FILE, SCHEMA_URL, validate, resolveConfig, render, samplePayload, toSchema };
+
+if (require.main === module) {
+  const [flag, arg] = process.argv.slice(2);
+  try {
+    if (flag === '--schema') process.stdout.write(JSON.stringify(toSchema(), null, 2) + '\n');
+    else if (flag === '--check') check(arg ? path.resolve(arg) : CONFIG_FILE);
+    else main();
+  } catch (e) {
+    process.stdout.write(`statusLine error: ${e.message}`);
+  }
 }
