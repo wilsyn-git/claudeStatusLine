@@ -15,6 +15,12 @@ One-file Claude Code status line (`statusLine.js`). The README covers the segmen
 
 Claude Code pipes the status JSON on stdin; its schema is documented at https://docs.claude.com/en/docs/claude-code/statusline. Treat every field as optional: read with `?.` and `??`, and have a segment function return `null` when its data is missing. `main` filters out the nulls.
 
+## Segments and config
+
+- A segment is a function `(ctx, opts) => string | null` registered in `SEGMENTS`. `ctx` carries the payload (`d`), merged config (`cfg`), `now`, `cwd` and a per-refresh `memo`; `opts` is that segment's entry in `DEFAULTS.segments`, merged with the user's config and any inline options from `lines`.
+- Adding a segment means a function, a `SEGMENTS` entry, its default options in `DEFAULTS.segments`, and a row in the README's segments table.
+- User config is `~/.claude/statusLine.json` (or `$STATUSLINE_CONFIG`), outside the repo. `loadConfig` must never throw: bad config falls back to defaults plus a `cfg` warning. Gate config changes by pointing `STATUSLINE_CONFIG` at a scratch file.
+
 ## Constraints
 
 - Node built-ins only: the install is a symlink, with no `npm install` step.
@@ -24,4 +30,4 @@ Claude Code pipes the status JSON on stdin; its schema is documented at https://
 
 ## Handoff model
 
-The design goal is handing a session off to a fresh one, not compacting it. `HANDOFF_PCT` (env, default 60) is the handoff point, and warnings start 15 points below it. Turn estimates come from per-session state in `$TMPDIR/claudeStatusLine/<session>.json`, because each refresh is a separate process. That state resets when context shrinks (compact, clear, or rewind).
+The design goal is handing a session off to a fresh one, not compacting it. `handoffPct` (config, default 60, overridden by the `HANDOFF_PCT` env var) is the handoff point, and warnings start `warnBelow` (default 15) points below it. Turn estimates come from per-session state in `$TMPDIR/claudeStatusLine/<session>.json`, because each refresh is a separate process. That state resets when context shrinks (compact, clear, or rewind).

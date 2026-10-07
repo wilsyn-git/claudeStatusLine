@@ -1,6 +1,6 @@
 # claudeStatusLine
 
-A two-line [Claude Code](https://docs.claude.com/en/docs/claude-code/statusline) status line, tuned for handoff-based session management: instead of letting a session compact, you hand off to a fresh one once context reaches a target. Single Node script, no dependencies. Colors are [Tokyo Night](https://github.com/folke/tokyonight.nvim).
+A configurable [Claude Code](https://docs.claude.com/en/docs/claude-code/statusline) status line, tuned for handoff-based session management: instead of letting a session compact, you hand off to a fresh one once context reaches a target. Single Node script, no dependencies. Colors are [Tokyo Night](https://github.com/folke/tokyonight.nvim).
 
 ```
  Opus 5.5 · high │ ▰▰▰▱▱▱▱▱▱▱ 31% 310k/1M │  290k │ ↑14k ↓2.1k  296k
@@ -27,7 +27,7 @@ A two-line [Claude Code](https://docs.claude.com/en/docs/claude-code/statusline)
 | Cost | Session cost and burn rate per hour (after the first 5 minutes) |
 | Git | Branch, dirty file count, ahead/behind, and lines added/removed this session |
 
-Segments with no data are omitted.
+Segments with no data are omitted. Which segments appear, on which line and in what order, is [configurable](#configuration).
 
 ## Install
 
@@ -52,11 +52,54 @@ Because it's a symlink, `git pull` updates the live status line.
 
 ## Configuration
 
-| Env var | Default | Effect |
-| --- | --- | --- |
-| `HANDOFF_PCT` | `60` | Context percentage at which to hand off. The warning threshold is 15 points below it |
+With no config file you get the layout shown above. To change it, create `~/.claude/statusLine.json` (or point `STATUSLINE_CONFIG` at another path). It lives outside the repo, so `git pull` never touches it. Every key is optional and merges over the built-in defaults: objects merge key by key, while arrays and scalars replace the default.
 
-Per-turn context history is kept in `$TMPDIR/claudeStatusLine/<session>.json`, since each status refresh runs as a separate process.
+```json
+{
+  "handoffPct": 50,
+  "separator": " │ ",
+  "lines": [
+    ["model", "context", "handoff"],
+    [{ "id": "limits", "windows": ["5h"] }, "cost", "git",
+     { "id": "command", "cmd": "kubectl config current-context", "icon": "⎈", "color": "cyan" }]
+  ],
+  "segments": {
+    "git": { "lineDelta": false }
+  },
+  "colors": { "red": "#ff5555" },
+  "icons": { "branch": "⎇" }
+}
+```
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `handoffPct` | `60` | Context percentage at which to hand off. The `HANDOFF_PCT` env var overrides it |
+| `warnBelow` | `15` | Context turns yellow this many points below `handoffPct` |
+| `separator` | `" │ "` | Text between segments |
+| `lines` | the two lines above | One array per output line, listing segments in order. An entry is a segment id, or `{ "id": …, …options }` to override that segment's options in that one place |
+| `segments` | see below | Default options per segment id |
+| `colors` | Tokyo Night | Override palette entries (`fg`, `dim`, `blue`, `cyan`, `purple`, `green`, `yellow`, `orange`, `red`, `teal`, `magenta`) with `#rrggbb` values |
+| `icons` | Nerd Font glyphs | Override icons (`model`, `fast`, `flag`, `warn`, `clock`, `cache`, `gauge`, `branch`) |
+
+**Segments and their options**
+
+| Id | Options (defaults) |
+| --- | --- |
+| `model` | `effort` (true), `fast` (true) |
+| `context` | `barCells` (10), `turnDelta` (true) |
+| `handoff` | `turnEstimate` (true) |
+| `tokens` | none |
+| `cache` | `hitRatio` (true), `misses` (true) |
+| `limits` | `windows` (`["5h", "wk"]`), `showResetAbove` (50), `warn` (50), `bad` (80) |
+| `cost` | `burnRate` (true), `burnRateAfterMin` (5) |
+| `git` | `lineDelta` (true), `timeoutMs` (500) |
+| `command` | `cmd` (required), `icon`, `color` (`"fg"`: a palette name or `#rrggbb`), `timeoutMs` (300), `cacheSec` (30) |
+
+`command` runs `cmd` through your shell in the session's directory and shows the first line of output. Its result, including a failure or timeout, is cached for `cacheSec`, so a slow command runs at most once per interval. Use it more than once with different inline options to add several custom segments.
+
+When something is wrong in the config, the status line still renders: a broken file falls back to the defaults with a red **cfg** warning on line 1, an unknown segment id shows as `?id`, and a segment that throws shows as `!id`.
+
+Per-turn context history is kept in `$TMPDIR/claudeStatusLine/<session>.json`, and `command` results in `$TMPDIR/claudeStatusLine/cmd-*.json`, since each status refresh runs as a separate process.
 
 ## Try it
 
