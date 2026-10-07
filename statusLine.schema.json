@@ -28,6 +28,23 @@
       "default": " │ ",
       "type": "string"
     },
+    "fitWidth": {
+      "description": "When a line is wider than the terminal, drop its lowest-priority segments until it fits.",
+      "default": true,
+      "type": "boolean"
+    },
+    "widthReserve": {
+      "description": "Columns to leave free at the right edge for Claude Code's own spacing.",
+      "default": 4,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 40
+    },
+    "overflowMarker": {
+      "description": "Shown at the end of a line when segments were dropped to fit. Empty to hide it.",
+      "default": "…",
+      "type": "string"
+    },
     "lines": {
       "description": "One list per output line, naming segments in order. An entry is a segment id, or {\"id\": ..., options} to override options in that one place.",
       "default": [
@@ -95,6 +112,13 @@
                   "description": "Show a lightbulb when extended thinking is on.",
                   "default": false,
                   "type": "boolean"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 100,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -120,6 +144,13 @@
                   "description": "Show this turn's context growth (+N).",
                   "default": true,
                   "type": "boolean"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 95,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -138,6 +169,13 @@
                   "description": "Estimate turns left from the average growth of recent turns.",
                   "default": true,
                   "type": "boolean"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 90,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -151,6 +189,13 @@
               "properties": {
                 "id": {
                   "const": "tokens"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 40,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -179,6 +224,13 @@
                   "description": "Show the likely cause of the last miss, such as tools changed.",
                   "default": false,
                   "type": "boolean"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 70,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -229,6 +281,13 @@
                   "type": "number",
                   "minimum": 0,
                   "maximum": 100
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 60,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -253,6 +312,13 @@
                   "default": 5,
                   "type": "number",
                   "minimum": 0
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 45,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -288,6 +354,13 @@
                   "type": "integer",
                   "minimum": 50,
                   "maximum": 5000
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 50,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -321,6 +394,13 @@
                   "description": "Show how many folders were added with /add-dir.",
                   "default": true,
                   "type": "boolean"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 55,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -341,6 +421,13 @@
                   "type": "integer",
                   "minimum": 4,
                   "maximum": 80
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 30,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -364,6 +451,13 @@
                   "description": "Make the number a clickable link in terminals that support it.",
                   "default": true,
                   "type": "boolean"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 50,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -382,6 +476,13 @@
                   "description": "Show one or two letters (N, I, V, VL) instead of the full mode.",
                   "default": false,
                   "type": "boolean"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 80,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -400,6 +501,13 @@
                   "description": "Show a non-default output style.",
                   "default": true,
                   "type": "boolean"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 40,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -418,6 +526,13 @@
                   "description": "Show the share of time spent waiting on the API.",
                   "default": true,
                   "type": "boolean"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 20,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -445,6 +560,13 @@
                   "description": "Show seconds.",
                   "default": false,
                   "type": "boolean"
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 10,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -509,6 +631,13 @@
                   "default": 30,
                   "type": "number",
                   "minimum": 0
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 25,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -556,6 +685,13 @@
                       "description": "A name defined under \"colors\""
                     }
                   ]
+                },
+                "priority": {
+                  "description": "When the line is too wide, segments with lower priority are dropped first.",
+                  "default": 10,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
                 }
               },
               "additionalProperties": false
@@ -588,6 +724,13 @@
               "description": "Show a lightbulb when extended thinking is on.",
               "default": false,
               "type": "boolean"
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 100,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -607,6 +750,13 @@
               "description": "Show this turn's context growth (+N).",
               "default": true,
               "type": "boolean"
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 95,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -619,6 +769,13 @@
               "description": "Estimate turns left from the average growth of recent turns.",
               "default": true,
               "type": "boolean"
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 90,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -626,7 +783,15 @@
           "description": "Last request: newly processed input, output, and cache read.",
           "type": "object",
           "additionalProperties": false,
-          "properties": {}
+          "properties": {
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 40,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
         },
         "cache": {
           "description": "Prompt cache time left (or cold plus the tokens a re-cache would bill), hit ratio, misses.",
@@ -647,6 +812,13 @@
               "description": "Show the likely cause of the last miss, such as tools changed.",
               "default": false,
               "type": "boolean"
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 70,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -691,6 +863,13 @@
               "type": "number",
               "minimum": 0,
               "maximum": 100
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 60,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -709,6 +888,13 @@
               "default": 5,
               "type": "number",
               "minimum": 0
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 45,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -738,6 +924,13 @@
               "type": "integer",
               "minimum": 50,
               "maximum": 5000
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 50,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -765,6 +958,13 @@
               "description": "Show how many folders were added with /add-dir.",
               "default": true,
               "type": "boolean"
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 55,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -779,6 +979,13 @@
               "type": "integer",
               "minimum": 4,
               "maximum": 80
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 30,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -796,6 +1003,13 @@
               "description": "Make the number a clickable link in terminals that support it.",
               "default": true,
               "type": "boolean"
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 50,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -808,6 +1022,13 @@
               "description": "Show one or two letters (N, I, V, VL) instead of the full mode.",
               "default": false,
               "type": "boolean"
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 80,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -820,6 +1041,13 @@
               "description": "Show a non-default output style.",
               "default": true,
               "type": "boolean"
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 40,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -832,6 +1060,13 @@
               "description": "Show the share of time spent waiting on the API.",
               "default": true,
               "type": "boolean"
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 20,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -853,6 +1088,13 @@
               "description": "Show seconds.",
               "default": false,
               "type": "boolean"
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 10,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -910,6 +1152,13 @@
               "default": 30,
               "type": "number",
               "minimum": 0
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 25,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         },
@@ -950,6 +1199,13 @@
                   "description": "A name defined under \"colors\""
                 }
               ]
+            },
+            "priority": {
+              "description": "When the line is too wide, segments with lower priority are dropped first.",
+              "default": 10,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
             }
           }
         }
