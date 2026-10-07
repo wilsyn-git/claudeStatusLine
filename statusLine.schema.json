@@ -59,7 +59,15 @@
                 "limits",
                 "cost",
                 "git",
-                "command"
+                "dir",
+                "session",
+                "pr",
+                "vim",
+                "agent",
+                "duration",
+                "clock",
+                "command",
+                "text"
               ],
               "description": "A segment id"
             },
@@ -81,6 +89,11 @@
                 "fast": {
                   "description": "Show a bolt when fast mode is on.",
                   "default": true,
+                  "type": "boolean"
+                },
+                "thinking": {
+                  "description": "Show a lightbulb when extended thinking is on.",
+                  "default": false,
                   "type": "boolean"
                 }
               },
@@ -161,13 +174,18 @@
                   "description": "Show the cache miss count.",
                   "default": true,
                   "type": "boolean"
+                },
+                "missCause": {
+                  "description": "Show the likely cause of the last miss, such as tools changed.",
+                  "default": false,
+                  "type": "boolean"
                 }
               },
               "additionalProperties": false
             },
             {
               "type": "object",
-              "description": "Plan usage for the 5-hour and weekly windows. Options set here apply to this placement only.",
+              "description": "Plan usage for the 5-hour and weekly windows, and the spend limit if your plan has one. Options set here apply to this placement only.",
               "required": [
                 "id"
               ],
@@ -176,7 +194,7 @@
                   "const": "limits"
                 },
                 "windows": {
-                  "description": "Which windows to show, in order.",
+                  "description": "Which windows to show, in order. spend shows dollars used against a spend limit.",
                   "default": [
                     "5h",
                     "wk"
@@ -185,7 +203,8 @@
                   "items": {
                     "enum": [
                       "5h",
-                      "wk"
+                      "wk",
+                      "spend"
                     ]
                   },
                   "uniqueItems": true
@@ -253,12 +272,179 @@
                   "default": true,
                   "type": "boolean"
                 },
+                "worktree": {
+                  "description": "Show the worktree name when in a linked git worktree.",
+                  "default": false,
+                  "type": "boolean"
+                },
+                "repo": {
+                  "description": "Show the repository owner/name before the branch.",
+                  "default": false,
+                  "type": "boolean"
+                },
                 "timeoutMs": {
                   "description": "Give up on git after this many milliseconds.",
                   "default": 500,
                   "type": "integer",
                   "minimum": 50,
                   "maximum": 5000
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Current folder, marked when it differs from where the session started, plus a count of added folders. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "dir"
+                },
+                "style": {
+                  "description": "short: ~ and the last two folders; name: the folder name only; full: the whole path.",
+                  "default": "short",
+                  "type": "string",
+                  "enum": [
+                    "short",
+                    "name",
+                    "full"
+                  ]
+                },
+                "projectDir": {
+                  "description": "Show the folder the session started in when it differs.",
+                  "default": true,
+                  "type": "boolean"
+                },
+                "addedDirs": {
+                  "description": "Show how many folders were added with /add-dir.",
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Session name, from --name, /rename, or the generated title. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "session"
+                },
+                "maxLength": {
+                  "description": "Shorten names longer than this.",
+                  "default": 30,
+                  "type": "integer",
+                  "minimum": 4,
+                  "maximum": 80
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Open pull request (or GitLab merge request) for the branch, colored by review state. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "pr"
+                },
+                "state": {
+                  "description": "Show the review state.",
+                  "default": true,
+                  "type": "boolean"
+                },
+                "link": {
+                  "description": "Make the number a clickable link in terminals that support it.",
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Vim mode when vim mode is on. Set hideVimModeIndicator in settings.json so it is not shown twice. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "vim"
+                },
+                "short": {
+                  "description": "Show one or two letters (N, I, V, VL) instead of the full mode.",
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Agent name when running with --agent, and the output style when it isn't the default. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "agent"
+                },
+                "outputStyle": {
+                  "description": "Show a non-default output style.",
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Session time, and how much of it was spent waiting on the API. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "duration"
+                },
+                "apiShare": {
+                  "description": "Show the share of time spent waiting on the API.",
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Local time. While the session is idle it only updates if refreshInterval is set in the statusLine settings. Options set here apply to this placement only.",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "clock"
+                },
+                "format": {
+                  "description": "Clock format.",
+                  "default": "24h",
+                  "type": "string",
+                  "enum": [
+                    "24h",
+                    "12h"
+                  ]
+                },
+                "seconds": {
+                  "description": "Show seconds.",
+                  "default": false,
+                  "type": "boolean"
                 }
               },
               "additionalProperties": false
@@ -326,6 +512,53 @@
                 }
               },
               "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "description": "Fixed text, such as a label or a spacer. Can be used more than once. Options set here apply to this placement only.",
+              "required": [
+                "id",
+                "text"
+              ],
+              "properties": {
+                "id": {
+                  "const": "text"
+                },
+                "text": {
+                  "description": "Text to show.",
+                  "type": "string"
+                },
+                "color": {
+                  "description": "Palette name or #rrggbb.",
+                  "default": "dim",
+                  "type": "string",
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "fg",
+                        "dim",
+                        "blue",
+                        "cyan",
+                        "purple",
+                        "green",
+                        "yellow",
+                        "orange",
+                        "red",
+                        "teal",
+                        "magenta"
+                      ]
+                    },
+                    {
+                      "pattern": "^#[0-9a-fA-F]{6}$",
+                      "format": "color-hex"
+                    },
+                    {
+                      "description": "A name defined under \"colors\""
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
             }
           ]
         }
@@ -349,6 +582,11 @@
             "fast": {
               "description": "Show a bolt when fast mode is on.",
               "default": true,
+              "type": "boolean"
+            },
+            "thinking": {
+              "description": "Show a lightbulb when extended thinking is on.",
+              "default": false,
               "type": "boolean"
             }
           }
@@ -404,16 +642,21 @@
               "description": "Show the cache miss count.",
               "default": true,
               "type": "boolean"
+            },
+            "missCause": {
+              "description": "Show the likely cause of the last miss, such as tools changed.",
+              "default": false,
+              "type": "boolean"
             }
           }
         },
         "limits": {
-          "description": "Plan usage for the 5-hour and weekly windows.",
+          "description": "Plan usage for the 5-hour and weekly windows, and the spend limit if your plan has one.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "windows": {
-              "description": "Which windows to show, in order.",
+              "description": "Which windows to show, in order. spend shows dollars used against a spend limit.",
               "default": [
                 "5h",
                 "wk"
@@ -422,7 +665,8 @@
               "items": {
                 "enum": [
                   "5h",
-                  "wk"
+                  "wk",
+                  "spend"
                 ]
               },
               "uniqueItems": true
@@ -478,12 +722,137 @@
               "default": true,
               "type": "boolean"
             },
+            "worktree": {
+              "description": "Show the worktree name when in a linked git worktree.",
+              "default": false,
+              "type": "boolean"
+            },
+            "repo": {
+              "description": "Show the repository owner/name before the branch.",
+              "default": false,
+              "type": "boolean"
+            },
             "timeoutMs": {
               "description": "Give up on git after this many milliseconds.",
               "default": 500,
               "type": "integer",
               "minimum": 50,
               "maximum": 5000
+            }
+          }
+        },
+        "dir": {
+          "description": "Current folder, marked when it differs from where the session started, plus a count of added folders.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "style": {
+              "description": "short: ~ and the last two folders; name: the folder name only; full: the whole path.",
+              "default": "short",
+              "type": "string",
+              "enum": [
+                "short",
+                "name",
+                "full"
+              ]
+            },
+            "projectDir": {
+              "description": "Show the folder the session started in when it differs.",
+              "default": true,
+              "type": "boolean"
+            },
+            "addedDirs": {
+              "description": "Show how many folders were added with /add-dir.",
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        },
+        "session": {
+          "description": "Session name, from --name, /rename, or the generated title.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxLength": {
+              "description": "Shorten names longer than this.",
+              "default": 30,
+              "type": "integer",
+              "minimum": 4,
+              "maximum": 80
+            }
+          }
+        },
+        "pr": {
+          "description": "Open pull request (or GitLab merge request) for the branch, colored by review state.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "description": "Show the review state.",
+              "default": true,
+              "type": "boolean"
+            },
+            "link": {
+              "description": "Make the number a clickable link in terminals that support it.",
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        },
+        "vim": {
+          "description": "Vim mode when vim mode is on. Set hideVimModeIndicator in settings.json so it is not shown twice.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "short": {
+              "description": "Show one or two letters (N, I, V, VL) instead of the full mode.",
+              "default": false,
+              "type": "boolean"
+            }
+          }
+        },
+        "agent": {
+          "description": "Agent name when running with --agent, and the output style when it isn't the default.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "outputStyle": {
+              "description": "Show a non-default output style.",
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        },
+        "duration": {
+          "description": "Session time, and how much of it was spent waiting on the API.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "apiShare": {
+              "description": "Show the share of time spent waiting on the API.",
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        },
+        "clock": {
+          "description": "Local time. While the session is idle it only updates if refreshInterval is set in the statusLine settings.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "description": "Clock format.",
+              "default": "24h",
+              "type": "string",
+              "enum": [
+                "24h",
+                "12h"
+              ]
+            },
+            "seconds": {
+              "description": "Show seconds.",
+              "default": false,
+              "type": "boolean"
             }
           }
         },
@@ -541,6 +910,46 @@
               "default": 30,
               "type": "number",
               "minimum": 0
+            }
+          }
+        },
+        "text": {
+          "description": "Fixed text, such as a label or a spacer. Can be used more than once.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "description": "Text to show.",
+              "type": "string"
+            },
+            "color": {
+              "description": "Palette name or #rrggbb.",
+              "default": "dim",
+              "type": "string",
+              "anyOf": [
+                {
+                  "enum": [
+                    "fg",
+                    "dim",
+                    "blue",
+                    "cyan",
+                    "purple",
+                    "green",
+                    "yellow",
+                    "orange",
+                    "red",
+                    "teal",
+                    "magenta"
+                  ]
+                },
+                {
+                  "pattern": "^#[0-9a-fA-F]{6}$",
+                  "format": "color-hex"
+                },
+                {
+                  "description": "A name defined under \"colors\""
+                }
+              ]
             }
           }
         }
@@ -659,6 +1068,46 @@
         "branch": {
           "type": "string",
           "default": ""
+        },
+        "folder": {
+          "type": "string",
+          "default": ""
+        },
+        "home": {
+          "type": "string",
+          "default": ""
+        },
+        "session": {
+          "type": "string",
+          "default": ""
+        },
+        "pr": {
+          "type": "string",
+          "default": ""
+        },
+        "vim": {
+          "type": "string",
+          "default": ""
+        },
+        "agent": {
+          "type": "string",
+          "default": ""
+        },
+        "duration": {
+          "type": "string",
+          "default": ""
+        },
+        "time": {
+          "type": "string",
+          "default": ""
+        },
+        "worktree": {
+          "type": "string",
+          "default": ""
+        },
+        "thinking": {
+          "type": "string",
+          "default": ""
         }
       }
     }

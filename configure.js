@@ -63,21 +63,35 @@ function format(v, indent = '') {
   return Array.isArray(v) ? `[\n${items.join(',\n')}\n${indent}]` : `{\n${items.join(',\n')}\n${indent}}`;
 }
 
-// Converts the renderer's 24-bit ANSI output to HTML spans
+// Converts the renderer's output to HTML: 24-bit color codes become spans and OSC 8 hyperlinks become links
+// (http/https only). Any other escape sequence or control character is dropped so it can't leak into the text.
 function ansiToHtml(s) {
-  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const token = /\x1b\[([0-9;]*)m|\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b./g;
   let style = '';
   let html = '';
-  for (const [i, part] of s.split(/\x1b\[([0-9;]*)m/).entries()) {
-    if (i % 2 === 0) {
-      if (part) html += style ? `<span style="${style}">${esc(part)}</span>` : esc(part);
-      continue;
+  let linkOpen = false;
+  let last = 0;
+  const text = (t) => {
+    t = t.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
+    if (t) html += style ? `<span style="${style}">${esc(t)}</span>` : esc(t);
+  };
+  for (const m of s.matchAll(token)) {
+    text(s.slice(last, m.index));
+    last = m.index + m[0].length;
+    if (m[1] !== undefined) {
+      const codes = m[1].split(';').map(Number);
+      if (!m[1] || codes[0] === 0) style = '';
+      const fg = codes.indexOf(38);
+      if (fg >= 0 && codes[fg + 1] === 2) style = `color:rgb(${codes.slice(fg + 2, fg + 5).join(',')})${codes.includes(1) ? ';font-weight:700' : ''}`;
+    } else if (m[2] !== undefined) {
+      if (linkOpen) html += '</a>';
+      linkOpen = /^https?:\/\//i.test(m[2]);
+      if (linkOpen) html += `<a href="${esc(m[2])}" target="_blank" rel="noopener noreferrer">`;
     }
-    const codes = part.split(';').map(Number);
-    if (!part || codes[0] === 0) style = '';
-    const fg = codes.indexOf(38);
-    if (fg >= 0 && codes[fg + 1] === 2) style = `color:rgb(${codes.slice(fg + 2, fg + 5).join(',')})${codes.includes(1) ? ';font-weight:700' : ''}`;
   }
+  text(s.slice(last));
+  if (linkOpen) html += '</a>';
   return html;
 }
 

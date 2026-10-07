@@ -58,6 +58,8 @@ header h1 { margin: 0; font-size: 20px; font-weight: 650; color: var(--strong); 
 /* Preview: the memorable element */
 .terminal { background: var(--term); border: 1px solid var(--term-edge); border-radius: 12px; overflow: hidden; }
 .terminal .screen { padding: 22px 24px 20px; font-family: var(--mono); font-size: 17px; line-height: 1.6; color: #c0caf5; white-space: pre; overflow-x: auto; min-height: 92px; }
+.terminal .screen a { color: inherit; text-decoration: underline; text-decoration-color: #565f89; text-underline-offset: 3px; }
+.terminal .screen a:hover { text-decoration-color: currentColor; }
 .terminal .prompt { color: #565f89; font-family: var(--mono); font-size: 14px; padding: 0 24px; margin-top: -4px; }
 .terminal .bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--term-edge); color: #737aa2; font-size: 13px; flex-wrap: wrap; }
 .scenarios { display: flex; gap: 2px; background: #16161e; border-radius: 8px; padding: 2px; }
@@ -77,7 +79,7 @@ h2 { margin: 0 0 4px; font-size: 16px; font-weight: 650; color: var(--strong); }
 
 .rail { display: flex; align-items: stretch; gap: 10px; margin-bottom: 10px; }
 .rail .num { width: 22px; flex: none; color: var(--faint); font-family: var(--mono); font-size: 13px; padding-top: 11px; text-align: right; }
-.rail .slots { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 46px; padding: 6px; border-radius: 10px; background: var(--term); border: 1px solid var(--term-edge); }
+.rail .slots { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 46px; padding: 6px; border-radius: 10px; background: var(--term); border: 1px solid var(--term-edge); }
 .rail .slots.over { border-color: var(--accent); }
 .rail .empty { color: #565f89; font-size: 13px; padding: 0 8px; }
 .rail .del { align-self: center; border-color: transparent; color: var(--faint); }
@@ -97,6 +99,11 @@ h2 { margin: 0 0 4px; font-size: 16px; font-weight: 650; color: var(--strong); }
 .tray.over { border-color: var(--danger); }
 .tray .chip { background: var(--term); }
 .tray .empty { color: var(--faint); font-size: 13px; padding: 0 6px; }
+h3.minor { margin: 20px 0 2px; font-size: 14px; font-weight: 650; color: var(--strong); }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.presets .chip { background: var(--term); }
+/* Nerd Font icons draw wider than their advance width, so give them room before the label */
+.chip .glyph { flex: none; margin-right: 6px; }
 
 /* Inspector */
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; position: sticky; top: 16px; }
@@ -207,6 +214,10 @@ details.json pre { background: var(--surface); border: 1px solid var(--line); bo
       <h2>Not shown</h2>
       <p class="sub">Drag a segment onto a line, or select it to add it to the last line. Drop a segment here to hide it.</p>
       <div class="tray" id="tray"></div>
+
+      <h3 class="minor">Presets</h3>
+      <p class="sub">Ready-made command segments. Select one to add it to the last line, or drag it onto a line.</p>
+      <div class="presets" id="presets"></div>
     </section>
 
     <aside class="panel" aria-label="Settings">
@@ -229,8 +240,29 @@ details.json pre { background: var(--surface); border: 1px solid var(--line); bo
 'use strict';
 const TOKEN = '__TOKEN__';
 
-const NAMES = { model: 'Model', context: 'Context bar', handoff: 'Handoff', tokens: 'Token mix', cache: 'Prompt cache', limits: 'Plan limits', cost: 'Cost', git: 'Git', command: 'Command' };
-const CHIP_COLOR = { model: 'purple', context: 'green', handoff: 'fg', tokens: 'blue', cache: 'teal', limits: 'blue', cost: 'green', git: 'purple' };
+const NAMES = {
+  model: 'Model', context: 'Context bar', handoff: 'Handoff', tokens: 'Token mix', cache: 'Prompt cache', limits: 'Plan limits',
+  cost: 'Cost', git: 'Git', command: 'Command', dir: 'Folder', session: 'Session', pr: 'Pull request', vim: 'Vim mode',
+  agent: 'Agent', duration: 'Duration', clock: 'Clock', text: 'Text',
+};
+const CHIP_COLOR = {
+  model: 'purple', context: 'green', handoff: 'fg', tokens: 'blue', cache: 'teal', limits: 'blue', cost: 'green', git: 'purple',
+  dir: 'blue', session: 'cyan', pr: 'green', vim: 'blue', agent: 'orange', duration: 'fg', clock: 'fg', text: 'fg',
+};
+// How a multi-use segment's chip is labeled on a line: from the option that identifies it, and what's missing without it
+const MULTI_LABEL = {
+  command: { key: 'cmd', show: (v, e) => (e.icon ? v : `$ ${v}`), missing: 'Command (needs a cmd)' },
+  text: { key: 'text', show: (v) => `“${v}”`, missing: 'Text (needs text)' },
+};
+// Ready-made command segments. Icons are Nerd Font (Font Awesome 4) code points.
+const PRESETS = [
+  { name: 'Kubernetes context', entry: { id: 'command', cmd: 'kubectl config current-context', icon: '\uf1b2', color: 'cyan', cacheSec: 30 } },
+  { name: 'AWS profile', entry: { id: 'command', cmd: 'printf %s "$AWS_PROFILE"', icon: '\uf0c2', color: 'orange', cacheSec: 300 } },
+  { name: 'Node version', entry: { id: 'command', cmd: 'node -v', icon: '\uf121', color: 'green', cacheSec: 300 } },
+  { name: 'Python version', entry: { id: 'command', cmd: 'python3 -V 2>&1 | cut -d" " -f2', icon: '\uf120', color: 'yellow', cacheSec: 300 } },
+  { name: 'Docker context', entry: { id: 'command', cmd: 'docker context show', icon: '\uf1b3', color: 'blue', cacheSec: 60 } },
+  { name: 'Battery (macOS)', entry: { id: 'command', cmd: 'pmset -g batt | grep -Eo "[0-9]+%" | head -1', icon: '\uf240', color: 'green', cacheSec: 60 } },
+];
 const SEPARATORS = [[' │ ', 'Bar'], [' · ', 'Dot'], [' | ', 'Pipe'], ['  ', 'Space']];
 
 let S;                 // server state: spec, defaults, palette, icons, path
@@ -240,7 +272,7 @@ let sel = null;        // selected chip: { li, ei }
 let tab = 'general';
 let scenario = 'typical';
 let problems = [];
-let drag = null;       // { from: 'line', li, ei } | { from: 'tray', id }
+let drag = null;       // { from: 'line', li, ei } | { from: 'tray', id, entry? }
 
 const $ = (id) => document.getElementById(id);
 const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -276,11 +308,12 @@ const dirty = () => JSON.stringify(config) !== saved;
 
 function entryAt(li, ei) { return lines()[li]?.[ei]; }
 
-// Where an option is read from and written to: inline on the entry if it's set there (or for command,
-// whose options are per placement), otherwise the segment's shared options under "segments".
+const isMulti = (id) => Boolean(S.spec.segments[id]?.multi);
+
+// Where an option is read from and written to: inline on the entry if it's set there (or for multi-use segments
+// like command, whose options are per placement), otherwise the segment's shared options under "segments".
 function optScope(entry, key) {
-  const id = idOf(entry);
-  if (id === 'command' || (isObj(entry) && key in entry)) return 'inline';
+  if (isMulti(idOf(entry)) || (isObj(entry) && key in entry)) return 'inline';
   return 'shared';
 }
 function optValue(entry, key) {
@@ -346,7 +379,8 @@ function move(li, ei, toLi, toIndex) {
   changed();
 }
 function newEntry(id) {
-  return id === 'command' ? { id: 'command', cmd: '' } : id;
+  // A multi-use segment starts with its identifying option empty, so validation asks for it
+  return MULTI_LABEL[id] ? { id, [MULTI_LABEL[id].key]: '' } : isMulti(id) ? { id } : id;
 }
 
 // ---- Rendering ----
@@ -366,31 +400,37 @@ function render() {
 
 function chipFor(entry, where) {
   const id = idOf(entry);
-  const color = id === 'command' ? resolveColor(optValue(entry, 'color') ?? 'fg') : resolveColor(CHIP_COLOR[id] ?? 'fg');
-  const label = id === 'command' && where.li != null ? (entry.cmd ? `$ ${entry.cmd}` : 'Command (needs a cmd)') : NAMES[id] ?? `?${id}`;
+  // A placed multi-use segment or a preset shows its own color; a bare tray chip uses CHIP_COLOR so a dim default
+  // doesn't look disabled
+  const hasOwnColor = isMulti(id) && S.spec.segments[id].options.color && (where.li != null || (isObj(entry) && entry.color));
+  const ownColor = hasOwnColor ? optValue(entry, 'color') : null;
+  const color = resolveColor(ownColor ?? CHIP_COLOR[id] ?? 'fg');
+  const ml = MULTI_LABEL[id];
+  const value = ml && isObj(entry) ? entry[ml.key] : '';
+  const label = where.preset ?? (ml && where.li != null ? (value ? ml.show(value, entry) : ml.missing) : NAMES[id] ?? `?${id}`);
   const isSel = where.li != null && sel && sel.li === where.li && sel.ei === where.ei;
   const hasErr = where.li != null && problems.some((p) => p.startsWith(`lines[${where.li}][${where.ei}]`));
   const chip = el('button', {
     class: `chip${hasErr ? ' err' : ''}`,
     draggable: 'true',
     'aria-selected': isSel ? 'true' : 'false',
-    title: S.spec.segments[id]?.desc ?? 'Unknown segment',
+    title: where.preset ? `Runs: ${entry.cmd}` : S.spec.segments[id]?.desc ?? 'Unknown segment',
     style: `--chip:${color}`,
     onclick: () => {
       if (where.li != null) { sel = { li: where.li, ei: where.ei }; tab = 'segment'; render(); }
-      else { const l = lines(); if (!l.length) l.push([]); setLines(l); insertAt(l.length - 1, l[l.length - 1].length, newEntry(id)); }
+      else { const l = lines(); if (!l.length) l.push([]); setLines(l); insertAt(l.length - 1, l[l.length - 1].length, where.preset ? clone(entry) : newEntry(id)); }
     },
     onkeydown: (e) => {
       if (where.li != null && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); removeAt(where.li, where.ei); }
     },
     ondragstart: (e) => {
-      drag = where.li != null ? { from: 'line', li: where.li, ei: where.ei } : { from: 'tray', id };
+      drag = where.li != null ? { from: 'line', li: where.li, ei: where.ei } : { from: 'tray', id, entry: where.preset ? entry : null };
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', id);
       requestAnimationFrame(() => chip.classList.add('dragging'));
     },
     ondragend: () => { drag = null; clearMarks(); chip.classList.remove('dragging'); },
-  }, el('span', { class: 'label' }, label));
+  }, isObj(entry) && typeof entry.icon === 'string' && entry.icon ? el('span', { class: 'glyph', 'aria-hidden': 'true' }, entry.icon) : null, el('span', { class: 'label' }, label));
   if (where.li != null) {
     chip.append(el('span', {
       class: 'x', role: 'button', 'aria-label': `Remove ${NAMES[id] ?? id}`, title: 'Remove',
@@ -442,7 +482,7 @@ function renderRails() {
       clearMarks();
       if (!d) return;
       if (d.from === 'line') move(d.li, d.ei, li, idx);
-      else insertAt(li, idx, newEntry(d.id));
+      else insertAt(li, idx, d.entry ? clone(d.entry) : newEntry(d.id));
     });
     rails.append(el('div', { class: 'rail' },
       el('span', { class: 'num', 'aria-hidden': 'true' }, String(li + 1)),
@@ -465,6 +505,7 @@ function renderTray() {
   const used = new Set(lines().flat().map(idOf));
   const ids = Object.keys(S.spec.segments).filter((id) => S.spec.segments[id].multi || !used.has(id));
   ids.forEach((id) => tray.append(chipFor(id, {})));
+  $('presets').replaceChildren(...PRESETS.map((p) => chipFor(p.entry, { preset: p.name })));
   if (!ids.length) tray.append(el('span', { class: 'empty' }, 'Every segment is shown.'));
   tray.ondragover = (e) => { if (drag?.from === 'line') { e.preventDefault(); tray.classList.add('over'); } };
   tray.ondragleave = (e) => { if (!tray.contains(e.relatedTarget)) tray.classList.remove('over'); };
@@ -546,6 +587,11 @@ function optionControl(spec, value, onchange, label) {
         isHex ? el('input', { type: 'color', value, 'aria-label': `${label} custom color`, onchange: (e) => onchange(e.target.value) }) : null);
       return { top };
     }
+    case 'enum':
+      return {
+        top: el('select', { 'aria-label': label, onchange: (e) => onchange(e.target.value) },
+          spec.values.map((v) => el('option', { value: v, selected: v === value ? true : false }, v))),
+      };
     default:
       return { below: el('input', { type: 'text', value: value ?? '', placeholder: spec.required ? 'required' : '', 'aria-label': label, onchange: (e) => onchange(e.target.value === '' && !spec.required ? undefined : e.target.value) }) };
   }
@@ -572,9 +618,9 @@ function segmentPane() {
   ];
   const opts = Object.entries(spec.options);
   if (!opts.length) return [...out, el('p', { class: 'placeholder' }, 'This segment has no options.')];
-  if (id !== 'command') out.push(el('p', { class: 'scope' }, `Changes apply wherever ${NAMES[id]} appears.`));
+  if (!isMulti(id)) out.push(el('p', { class: 'scope' }, `Changes apply wherever ${NAMES[id] ?? id} appears.`));
   for (const [key, o] of opts) {
-    const inlineHere = id !== 'command' && isObj(entry) && key in entry;
+    const inlineHere = !isMulti(id) && isObj(entry) && key in entry;
     out.push(field(o.desc, key, optionControl(o, optValue(entry, key), (v) => setOpt(li, ei, key, v), o.desc), { tag: inlineHere ? 'Only here' : null }));
   }
   return out;

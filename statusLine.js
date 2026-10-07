@@ -30,8 +30,10 @@ const PALETTE = {
 
 // Nerd Font glyphs from the Font Awesome 4 and Powerline ranges, which are stable across Nerd Font v2 and v3
 const ICONS = {
-  model: '', fast: '', flag: '', warn: '', clock: '',
-  cache: '', gauge: '', branch: '',
+  model: '\uf2db', fast: '\uf0e7', flag: '\uf024', warn: '\uf071', clock: '\uf017',
+  cache: '\uf1c0', gauge: '\uf0e4', branch: '\ue0a0', folder: '\uf07b', home: '\uf015',
+  session: '\uf02b', pr: '\uf126', vim: '\uf11c', agent: '\uf21b', duration: '\uf254', time: '\uf017',
+  worktree: '\uf0e8', thinking: '\uf0eb',
 };
 
 // The active palette and icons: the defaults above plus config overrides, reapplied on each render
@@ -39,7 +41,11 @@ const C = { ...PALETTE };
 const I = { ...ICONS };
 
 const EFFORT_COLORS = { low: 'dim', medium: 'blue', high: 'yellow', xhigh: 'orange', max: 'magenta' };
-const LIMIT_WINDOWS = { '5h': 'five_hour', wk: 'seven_day' };
+const LIMIT_WINDOWS = { '5h': 'five_hour', wk: 'seven_day', spend: 'spend_limit' };
+const SPEND_PERIODS = { daily: 'day', weekly: 'wk', monthly: 'mo' };
+const MISS_CAUSES = { tools_changed: 'tools changed', system_prompt_changed: 'system prompt changed', ttl_expired_5m: '5m TTL expired', ttl_expired_1h: '1h TTL expired', likely_server_side: 'server side' };
+const PR_STATES = { approved: 'green', changes_requested: 'red', pending: 'yellow', draft: 'dim' };
+const VIM_COLORS = { NORMAL: 'blue', INSERT: 'green', VISUAL: 'purple', 'VISUAL LINE': 'purple' };
 
 // Every configurable setting with its type, default and description. DEFAULTS, validation, the JSON Schema
 // and the visual configurator (configure.js) are all derived from this table, so a new option goes here only.
@@ -59,6 +65,7 @@ const SPEC = {
       options: {
         effort: { type: 'boolean', default: true, desc: 'Show the reasoning effort level.' },
         fast: { type: 'boolean', default: true, desc: 'Show a bolt when fast mode is on.' },
+        thinking: { type: 'boolean', default: false, desc: 'Show a lightbulb when extended thinking is on.' },
       },
     },
     context: {
@@ -80,12 +87,13 @@ const SPEC = {
       options: {
         hitRatio: { type: 'boolean', default: true, desc: 'Show the cache hit ratio.' },
         misses: { type: 'boolean', default: true, desc: 'Show the cache miss count.' },
+        missCause: { type: 'boolean', default: false, desc: 'Show the likely cause of the last miss, such as tools changed.' },
       },
     },
     limits: {
-      desc: 'Plan usage for the 5-hour and weekly windows.',
+      desc: 'Plan usage for the 5-hour and weekly windows, and the spend limit if your plan has one.',
       options: {
-        windows: { type: 'list', items: Object.keys(LIMIT_WINDOWS), default: ['5h', 'wk'], desc: 'Which windows to show, in order.' },
+        windows: { type: 'list', items: Object.keys(LIMIT_WINDOWS), default: ['5h', 'wk'], desc: 'Which windows to show, in order. spend shows dollars used against a spend limit.' },
         showResetAbove: { type: 'number', min: 0, max: 100, default: 50, desc: 'Show the reset countdown at or above this percentage.' },
         warn: { type: 'number', min: 0, max: 100, default: 50, desc: 'Yellow at or above this percentage.' },
         bad: { type: 'number', min: 0, max: 100, default: 80, desc: 'Red at or above this percentage.' },
@@ -102,7 +110,55 @@ const SPEC = {
       desc: 'Branch, dirty file count, ahead/behind, and lines added/removed this session.',
       options: {
         lineDelta: { type: 'boolean', default: true, desc: 'Show lines added/removed this session.' },
+        worktree: { type: 'boolean', default: false, desc: 'Show the worktree name when in a linked git worktree.' },
+        repo: { type: 'boolean', default: false, desc: 'Show the repository owner/name before the branch.' },
         timeoutMs: { type: 'integer', min: 50, max: 5000, default: 500, desc: 'Give up on git after this many milliseconds.' },
+      },
+    },
+    dir: {
+      desc: 'Current folder, marked when it differs from where the session started, plus a count of added folders.',
+      options: {
+        style: { type: 'enum', values: ['short', 'name', 'full'], default: 'short', desc: 'short: ~ and the last two folders; name: the folder name only; full: the whole path.' },
+        projectDir: { type: 'boolean', default: true, desc: 'Show the folder the session started in when it differs.' },
+        addedDirs: { type: 'boolean', default: true, desc: 'Show how many folders were added with /add-dir.' },
+      },
+    },
+    session: {
+      desc: 'Session name, from --name, /rename, or the generated title.',
+      options: {
+        maxLength: { type: 'integer', min: 4, max: 80, default: 30, desc: 'Shorten names longer than this.' },
+      },
+    },
+    pr: {
+      desc: 'Open pull request (or GitLab merge request) for the branch, colored by review state.',
+      options: {
+        state: { type: 'boolean', default: true, desc: 'Show the review state.' },
+        link: { type: 'boolean', default: true, desc: 'Make the number a clickable link in terminals that support it.' },
+      },
+    },
+    vim: {
+      desc: 'Vim mode when vim mode is on. Set hideVimModeIndicator in settings.json so it is not shown twice.',
+      options: {
+        short: { type: 'boolean', default: false, desc: 'Show one or two letters (N, I, V, VL) instead of the full mode.' },
+      },
+    },
+    agent: {
+      desc: "Agent name when running with --agent, and the output style when it isn't the default.",
+      options: {
+        outputStyle: { type: 'boolean', default: true, desc: 'Show a non-default output style.' },
+      },
+    },
+    duration: {
+      desc: 'Session time, and how much of it was spent waiting on the API.',
+      options: {
+        apiShare: { type: 'boolean', default: true, desc: 'Show the share of time spent waiting on the API.' },
+      },
+    },
+    clock: {
+      desc: 'Local time. While the session is idle it only updates if refreshInterval is set in the statusLine settings.',
+      options: {
+        format: { type: 'enum', values: ['24h', '12h'], default: '24h', desc: 'Clock format.' },
+        seconds: { type: 'boolean', default: false, desc: 'Show seconds.' },
       },
     },
     command: {
@@ -114,6 +170,14 @@ const SPEC = {
         color: { type: 'color', default: 'fg', desc: 'Palette name or #rrggbb.' },
         timeoutMs: { type: 'integer', min: 50, max: 5000, default: 300, desc: 'Give up on the command after this many milliseconds.' },
         cacheSec: { type: 'number', min: 0, default: 30, desc: 'Reuse the last result (including a failure) for this many seconds.' },
+      },
+    },
+    text: {
+      multi: true,
+      desc: 'Fixed text, such as a label or a spacer. Can be used more than once.',
+      options: {
+        text: { type: 'string', required: true, desc: 'Text to show.' },
+        color: { type: 'color', default: 'dim', desc: 'Palette name or #rrggbb.' },
       },
     },
   },
@@ -170,6 +234,9 @@ function validate(user) {
       case 'color':
         if (!isHex(v) && !colorNames.has(v)) bad(p, `must be #rrggbb or a palette name (${[...colorNames].join(', ')})`);
         return;
+      case 'enum':
+        if (!spec.values.includes(v)) bad(p, `must be one of ${spec.values.join(', ')}`);
+        return;
       case 'list':
         if (!Array.isArray(v)) return bad(p, `must be a list of ${spec.items.join(', ')}`);
         v.forEach((x, i) => spec.items.includes(x) || bad(`${p}[${i}]`, `must be one of ${spec.items.join(', ')}`));
@@ -200,7 +267,9 @@ function validate(user) {
           if (typeof id !== 'string') return bad(p, 'must be a segment id or an object with an "id"');
           if (!SPEC.segments[id]) return unknown(p, 'segment', id, Object.keys(SPEC.segments));
           if (isObject(entry)) checkOptions(p, id, entry, ['id']);
-          if (id === 'command' && !(isObject(entry) && entry.cmd) && !user.segments?.command?.cmd) bad(p, 'command needs a "cmd"');
+          for (const [key, o] of Object.entries(SPEC.segments[id].options)) {
+            if (o.required && !(isObject(entry) && entry[key]) && !user.segments?.[id]?.[key]) bad(p, `${id} needs a "${key}"`);
+          }
         })
       );
     } else if (k === 'segments') {
@@ -341,6 +410,7 @@ function modelSegment({ d }, o) {
   const effort = d.effort?.level;
   if (o.effort && effort) s += paint(C.dim, ' · ') + paint(C[EFFORT_COLORS[effort]] ?? C.fg, effort);
   if (o.fast && d.fast_mode) s += ' ' + paint(C.yellow, I.fast);
+  if (o.thinking && d.thinking?.enabled) s += ' ' + paint(C.cyan, I.thinking);
   return s;
 }
 
@@ -387,6 +457,10 @@ function cacheSegment({ d, now }, o) {
     hit = ' ' + paint(h >= 80 ? C.green : h >= 50 ? C.yellow : C.red, `${h}%`) + paint(C.dim, ' hit');
   }
   if (o.misses && pc.misses > 0) hit += ' ' + paint(C.yellow, `${pc.misses} miss`);
+  const causes = pc.last_miss_cause?.causes;
+  if (o.missCause && pc.misses > 0 && causes?.length) {
+    hit += ' ' + paint(C.dim, `(${causes.map((c) => MISS_CAUSES[c] ?? String(c).replace(/_/g, ' ')).join(', ')})`);
+  }
 
   if (!pc.warm || (pc.expires_at && pc.expires_at <= now)) {
     return paint(C.red, `${I.clock} cold`, true) + paint(C.dim, ' re-bill ') + paint(C.orange, fmtTokens(pc.recache_tokens_if_cold)) + hit;
@@ -404,7 +478,10 @@ function limitsSegment({ d, now }, o) {
     const limit = rl[LIMIT_WINDOWS[label]];
     if (limit?.used_percentage == null) return null;
     const pct = Math.round(limit.used_percentage);
-    let s = paint(C.dim, `${label} `) + paint(pctColor(pct, o.warn, o.bad), `${pct}%`);
+    // Spend limits show dollars when the gateway has reported them; they can lag the percentage, so it's the fallback
+    const spend = label === 'spend';
+    const shown = spend && limit.used_usd != null && limit.limit_usd != null ? `$${Math.round(limit.used_usd)}/$${Math.round(limit.limit_usd)}` : `${pct}%`;
+    let s = paint(C.dim, `${spend ? SPEND_PERIODS[limit.period] ?? limit.period ?? 'spend' : label} `) + paint(pctColor(pct, o.warn, o.bad), shown);
     if (pct >= o.showResetAbove && limit.resets_at) s += paint(C.dim, ` ↻${fmtDuration(limit.resets_at - now)}`);
     return s;
   };
@@ -448,7 +525,11 @@ function gitSegment({ d, cwd }, o) {
       if (m) [ahead, behind] = [Number(m[1]), Number(m[2])];
     } else if (line && !line.startsWith('#')) dirty++;
   }
-  let s = paint(C.purple, `${I.branch} ${head}`);
+  const repo = d.workspace?.repo;
+  let s = o.repo && repo?.owner && repo?.name ? paint(C.dim, `${repo.owner}/${repo.name} `) : '';
+  s += paint(C.purple, `${I.branch} ${head}`);
+  const worktree = d.worktree?.name ?? d.workspace?.git_worktree;
+  if (o.worktree && worktree) s += ' ' + paint(C.dim, `${I.worktree} ${worktree}`);
   if (dirty) s += ' ' + paint(C.yellow, `●${dirty}`);
   if (ahead) s += ' ' + paint(C.green, `↑${ahead}`);
   if (behind) s += ' ' + paint(C.red, `↓${behind}`);
@@ -456,6 +537,87 @@ function gitSegment({ d, cwd }, o) {
   const removed = d.cost?.total_lines_removed ?? 0;
   if (o.lineDelta && (added || removed)) s += ' ' + paint(C.green, `+${added}`) + ' ' + paint(C.red, `−${removed}`);
   return s;
+}
+
+const tildify = (p) => {
+  const home = os.homedir();
+  return p === home || p.startsWith(home + path.sep) ? `~${p.slice(home.length)}` : p;
+};
+
+function dirSegment({ d, cwd }, o) {
+  if (!cwd) return null;
+  let shown = o.style === 'name' ? path.basename(cwd) || cwd : tildify(cwd);
+  if (o.style !== 'name' && o.style !== 'full') {
+    const parts = shown.split(path.sep);
+    if (parts.length > 3) shown = ['…', ...parts.slice(-2)].join(path.sep);
+  }
+  let s = paint(C.blue, `${I.folder} ${shown}`);
+  const project = d.workspace?.project_dir;
+  if (o.projectDir && project && project !== cwd) s += ' ' + paint(C.dim, `${I.home} ${path.basename(project)}`);
+  const added = d.workspace?.added_dirs?.length ?? 0;
+  if (o.addedDirs && added) s += ' ' + paint(C.dim, `+${added}`);
+  return s;
+}
+
+function sessionSegment({ d }, o) {
+  const name = d.session_name;
+  if (!name) return null;
+  const max = Math.max(4, Number(o.maxLength) || 30);
+  return paint(C.cyan, `${I.session} ${name.length > max ? `${name.slice(0, max - 1)}…` : name}`);
+}
+
+// OSC 8 hyperlink: clickable in terminals that support it, plain text in the rest
+const hyperlink = (url, text) => `\x1b]8;;${String(url).replace(/[\x00-\x1f\x7f]/g, '')}\x1b\\${text}\x1b]8;;\x1b\\`;
+
+function prSegment({ d }, o) {
+  const pr = d.pr;
+  if (pr?.number == null) return null;
+  const state = pr.review_state;
+  // GitLab merge requests are written !N, GitHub pull requests #N
+  const label = `${I.pr} ${pr.kind === 'mr' ? '!' : '#'}${pr.number}`;
+  let s = paint(C[PR_STATES[state]] ?? C.fg, o.link && pr.url ? hyperlink(pr.url, label) : label);
+  if (o.state && state) s += ' ' + paint(C.dim, state.replace(/_/g, ' '));
+  return s;
+}
+
+function vimSegment({ d }, o) {
+  const mode = d.vim?.mode;
+  if (!mode) return null;
+  const shown = o.short ? mode.split(' ').map((w) => w[0]).join('') : mode;
+  return paint(C[VIM_COLORS[mode]] ?? C.fg, `${I.vim} ${shown}`);
+}
+
+function agentSegment({ d }, o) {
+  const parts = [];
+  if (d.agent?.name) parts.push(paint(C.orange, `${I.agent} ${d.agent.name}`));
+  const style = d.output_style?.name;
+  if (o.outputStyle && style && style.toLowerCase() !== 'default') parts.push(paint(C.dim, style));
+  return parts.length ? parts.join(' ') : null;
+}
+
+function durationSegment({ d }, o) {
+  const ms = d.cost?.total_duration_ms;
+  if (!ms) return null;
+  let s = paint(C.fg, `${I.duration} ${fmtDuration(ms / 1000)}`);
+  const api = d.cost?.total_api_duration_ms;
+  if (o.apiShare && api != null) s += ' ' + paint(C.dim, `${Math.round((api / ms) * 100)}% API`);
+  return s;
+}
+
+function clockSegment({ now }, o) {
+  const t = new Date(now * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  const twelve = o.format === '12h';
+  const h = t.getHours();
+  let time = `${twelve ? h % 12 || 12 : pad(h)}:${pad(t.getMinutes())}`;
+  if (o.seconds) time += `:${pad(t.getSeconds())}`;
+  if (twelve) time += h < 12 ? 'am' : 'pm';
+  return paint(C.fg, `${I.time} ${time}`);
+}
+
+function textSegment(ctx, o) {
+  if (typeof o.text !== 'string' || !o.text) return null;
+  return paint(color(o.color), o.text);
 }
 
 // Runs a user-supplied shell command and shows the first line of its output. The result (including failure)
@@ -502,7 +664,15 @@ const SEGMENTS = {
   limits: limitsSegment,
   cost: costSegment,
   git: gitSegment,
+  dir: dirSegment,
+  session: sessionSegment,
+  pr: prSegment,
+  vim: vimSegment,
+  agent: agentSegment,
+  duration: durationSegment,
+  clock: clockSegment,
   command: commandSegment,
+  text: textSegment,
 };
 
 // A line entry is a segment id ("git") or an object with an id plus options that override that segment's config.
@@ -536,9 +706,9 @@ function render(d, cfg, { problems = [], preview = false } = {}) {
 function samplePayload(scenario = 'typical', cwd = process.cwd()) {
   const now = Math.floor(Date.now() / 1000);
   const s = {
-    typical: { pct: 31, cacheLeft: 2900, warm: true, five: 34, week: 61, cost: 4.12 },
-    warning: { pct: 52, cacheLeft: 240, warm: true, five: 72, week: 64, cost: 9.8 },
-    handoff: { pct: 64, cacheLeft: 0, warm: false, five: 91, week: 83, cost: 17.35 },
+    typical: { pct: 31, cacheLeft: 2900, warm: true, five: 34, week: 61, spend: 41, cost: 4.12, pr: 'approved', vim: 'INSERT' },
+    warning: { pct: 52, cacheLeft: 240, warm: true, five: 72, week: 64, spend: 72, cost: 9.8, pr: 'pending', vim: 'NORMAL', miss: ['tools_changed'], worktree: true },
+    handoff: { pct: 64, cacheLeft: 0, warm: false, five: 91, week: 83, spend: 93, cost: 17.35, pr: 'changes_requested', vim: 'VISUAL LINE', agent: 'security-reviewer', miss: ['ttl_expired_5m'], worktree: true },
   }[scenario] ?? {};
   const used = s.pct * 10000;
   return {
@@ -550,13 +720,28 @@ function samplePayload(scenario = 'typical', cwd = process.cwd()) {
       used_percentage: s.pct,
       current_usage: { input_tokens: 2000, cache_creation_input_tokens: 12000, cache_read_input_tokens: used - 14000, output_tokens: 2100 },
     },
-    prompt_cache: { caching_observed: true, warm: s.warm, expires_at: s.warm ? now + s.cacheLeft : now - 60, hit_ratio: 0.98, misses: 1, recache_tokens_if_cold: used },
+    prompt_cache: {
+      caching_observed: true, warm: s.warm, expires_at: s.warm ? now + s.cacheLeft : now - 60, hit_ratio: 0.98, misses: 1, recache_tokens_if_cold: used,
+      last_miss_cause: s.miss ? { causes: s.miss } : null,
+    },
     rate_limits: {
       five_hour: { used_percentage: s.five, resets_at: now + 9000 },
       seven_day: { used_percentage: s.week, resets_at: now + 190000 },
+      spend_limit: { used_percentage: s.spend, resets_at: now + 1200000, used_usd: s.spend * 5, limit_usd: 500, period: 'monthly' },
     },
-    cost: { total_cost_usd: s.cost, total_duration_ms: 3900000, total_lines_added: 120, total_lines_removed: 34 },
+    thinking: { enabled: true },
+    cost: { total_cost_usd: s.cost, total_duration_ms: 3900000, total_api_duration_ms: 702000, total_lines_added: 120, total_lines_removed: 34 },
     cwd,
+    session_name: 'status line widgets',
+    workspace: {
+      current_dir: cwd, project_dir: cwd, added_dirs: [path.join(os.tmpdir(), 'notes')],
+      repo: { host: 'github.com', owner: 'wilsyn-git', name: 'claudeStatusLine' },
+    },
+    ...(s.worktree ? { worktree: { name: 'more-segments', path: cwd, branch: 'worktree-more-segments', original_cwd: cwd, original_branch: 'main' } } : {}),
+    output_style: { name: 'default' },
+    pr: { number: 4, url: 'https://github.com/wilsyn-git/claudeStatusLine/pull/4', review_state: s.pr },
+    vim: { mode: s.vim },
+    ...(s.agent ? { agent: { name: s.agent } } : {}),
   };
 }
 
@@ -573,6 +758,9 @@ function schemaFor(spec) {
     case 'color':
       s.type = 'string';
       s.anyOf = [{ enum: Object.keys(PALETTE) }, { pattern: '^#[0-9a-fA-F]{6}$', format: 'color-hex' }, { description: 'A name defined under "colors"' }];
+      break;
+    case 'enum':
+      Object.assign(s, { type: 'string', enum: spec.values });
       break;
     case 'list':
       Object.assign(s, { type: 'array', items: { enum: spec.items }, uniqueItems: true });
