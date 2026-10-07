@@ -1,0 +1,27 @@
+# claudeStatusLine
+
+One-file Claude Code status line (`statusLine.js`). The README covers the segments, install, and a sample payload.
+
+## The working copy is live
+
+`~/.claude/statusLine.js` is a symlink to `statusLine.js` in this checkout, so every save renders in every open Claude session on its next refresh, whatever branch is checked out. A broken save blanks the status line everywhere, including in the session making the edit.
+
+- Make multi-step changes in a scratch copy outside the repo and move it in once it passes the gate below.
+- **Gate** (there is no test suite), run before moving a change in and before every commit:
+  1. `node --check statusLine.js`
+  2. Pipe the README's "Try it" payload through it, adding `| sed 's/\x1b\[[0-9;]*m//g'` to strip color. Extend the payload with whatever your change reads (`prompt_cache`, `rate_limits`, `cost`, `session_id`), because a segment with no data is omitted and a broken one can look identical to an empty one.
+
+## Input contract
+
+Claude Code pipes the status JSON on stdin; its schema is documented at https://docs.claude.com/en/docs/claude-code/statusline. Treat every field as optional: read with `?.` and `??`, and have a segment function return `null` when its data is missing. `main` filters out the nulls.
+
+## Constraints
+
+- Node built-ins only: the install is a symlink, with no `npm install` step.
+- All output goes through one `process.stdout.write`. Failures surface as a one-line message from the `try` around `main()`.
+- It runs on every refresh, so it has to be fast. Subprocesses get a timeout, and git also gets `--no-optional-locks` (see `gitSegment`).
+- Colors come from the Tokyo Night palette in `C`. Icons come from `I`, using only the Nerd Font Font Awesome 4 (`U+F000–F2E0`) and Powerline (`U+E0A0–E0D4`) ranges, the ones that are stable across Nerd Font v2 and v3.
+
+## Handoff model
+
+The design goal is handing a session off to a fresh one, not compacting it. `HANDOFF_PCT` (env, default 60) is the handoff point, and warnings start 15 points below it. Turn estimates come from per-session state in `$TMPDIR/claudeStatusLine/<session>.json`, because each refresh is a separate process. That state resets when context shrinks (compact, clear, or rewind).
