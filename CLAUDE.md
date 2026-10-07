@@ -22,6 +22,7 @@ Claude Code pipes the status JSON on stdin; its schema is documented at https://
 - `SPEC` is the single source for every setting's type, default and description. `DEFAULTS`, `validate`, `--schema` and the configurator's forms are all derived from it, so adding a segment means a function, a `SEGMENTS` entry, a `SPEC.segments` entry, a row in the README's segments table, and a regenerated schema. The configurator's display name and chip color live in `NAMES`/`CHIP_COLOR` in `configure.html`.
 - User config is `~/.claude/statusLine.json` (or `$STATUSLINE_CONFIG`), outside the repo. `loadConfig` must never throw: bad config falls back to defaults plus a `cfg` warning. Gate config changes by pointing `STATUSLINE_CONFIG` at a scratch file.
 - `statusLine.js` is also a module: `configure.js` requires it for `SPEC`, `validate` and `render`, so top-level code must stay side-effect free (CLI work is behind `require.main === module`).
+- Width fitting lives in `layout`/`fitLine`: segments render first, then lines wider than `COLUMNS − widthReserve` drop by `priority` (a universal option added to every segment from `SPEC.segments[id].priority`). Anything that adds escape sequences must keep `ESCAPES` and `visibleWidth` in sync, or widths and `truncate` go wrong. Test fitting with `COLUMNS=N` on the gate command, or `--check --width N`.
 - Segments must honor `ctx.preview`: the configurator and `--check` render unsaved config, so nothing that runs user input (like `command`) may execute in preview.
 
 ## Configurator

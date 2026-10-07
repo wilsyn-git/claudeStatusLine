@@ -95,10 +95,12 @@ function ansiToHtml(s) {
   return html;
 }
 
-function preview(config, scenario) {
+// Renders the sample payload as HTML lines. With a width, lines are fitted like in a terminal that wide, and
+// `dropped` lists per config line the entry indexes that didn't fit.
+function preview(config, scenario, width) {
   const { cfg } = sl.resolveConfig(config);
-  const out = sl.render(sl.samplePayload(scenario), cfg, { preview: true });
-  return out.split('\n').map(ansiToHtml);
+  const out = sl.layout(sl.samplePayload(scenario), cfg, { preview: true, width: Number(width) || null });
+  return { lines: out.filter((l) => l.text).map((l) => ansiToHtml(l.text)), dropped: out.map((l) => l.dropped) };
 }
 
 function save(config) {
@@ -164,7 +166,7 @@ const server = http.createServer((req, res) => {
             font: Boolean(FONT),
           });
         case '/api/preview':
-          return send(res, 200, { problems: sl.validate(input.config), lines: preview(input.config, input.scenario) });
+          return send(res, 200, { problems: sl.validate(input.config), ...preview(input.config, input.scenario, input.width) });
         case '/api/save': {
           const r = save(input.config);
           return send(res, r.status, r.body);

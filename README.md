@@ -40,7 +40,7 @@ A configurable [Claude Code](https://docs.claude.com/en/docs/claude-code/statusl
 | Clock (`clock`) | Local time. While the session is idle it only updates if `refreshInterval` is set in the `statusLine` settings |
 | Text (`text`) | Fixed text, such as a label or a spacer |
 
-Segments with no data are omitted. Which segments appear, on which line and in what order, is [configurable](#configuration).
+Segments with no data are omitted. Which segments appear, on which line and in what order, is [configurable](#configuration). When a line is wider than the terminal, its lowest-priority segments are dropped and a dim `…` marks the line (see [Fitting to the terminal](#fitting-to-the-terminal)).
 
 ## Install
 
@@ -71,7 +71,7 @@ With no config file you get the layout shown above. To change it, create `~/.cla
 
 - **Visual editor:** `node ~/code/claudeStatusLine/configure.js` opens a page in your browser. Drag segments between lines, change options and colors, and watch a live preview in your Nerd Font across three sample sessions (comfortable, near handoff, past handoff). Save validates first and keeps the previous file as `statusLine.json.bak`. It only listens on 127.0.0.1, behind a per-run token, and the preview never runs `command` segments, so a half-typed command can't execute.
 - **In your editor:** keep the `"$schema"` line (the visual editor adds it on save) and VS Code or any JSON Schema-aware editor autocompletes segment ids and options, shows what each one does, and flags bad values as you type.
-- **From the terminal:** `node statusLine.js --check [file]` lists every problem with its path (`segments.context: unknown option "barcells", did you mean "barCells"?`) and previews the result. It exits 1 when there are problems.
+- **From the terminal:** `node statusLine.js --check [file] [--width N]` lists every problem with its path (`segments.context: unknown option "barcells", did you mean "barCells"?`) and previews the result, fitted to `N` columns if given. It exits 1 when there are problems.
 
 The live status line validates too: a problem shows as a red **cfg** warning on line 1 instead of being silently ignored.
 
@@ -100,12 +100,17 @@ The live status line validates too: a problem shows as a red **cfg** warning on 
 | `handoffPct` | `60` | Context percentage at which to hand off. The `HANDOFF_PCT` env var overrides it |
 | `warnBelow` | `15` | Context turns yellow this many points below `handoffPct` |
 | `separator` | `" │ "` | Text between segments |
+| `fitWidth` | `true` | Drop lowest-priority segments from lines wider than the terminal |
+| `widthReserve` | `4` | Columns left free at the right edge for Claude Code's own spacing |
+| `overflowMarker` | `"…"` | Shown at the end of a line that had segments dropped. `""` hides it |
 | `lines` | the two lines above | One array per output line, listing segments in order. An entry is a segment id, or `{ "id": …, …options }` to override that segment's options in that one place |
 | `segments` | see below | Default options per segment id |
 | `colors` | Tokyo Night | Override palette entries (`fg`, `dim`, `blue`, `cyan`, `purple`, `green`, `yellow`, `orange`, `red`, `teal`, `magenta`) with `#rrggbb` values |
 | `icons` | Nerd Font glyphs | Override icons (`model`, `fast`, `flag`, `warn`, `clock`, `cache`, `gauge`, `branch`). Write Nerd Font glyphs as `"\uf2db"` escapes to keep them visible in any editor |
 
 **Segments and their options**
+
+Every segment also takes `priority` (0–100), described in [Fitting to the terminal](#fitting-to-the-terminal).
 
 | Id | Options (defaults) |
 | --- | --- |
@@ -128,6 +133,19 @@ The live status line validates too: a problem shows as a red **cfg** warning on 
 | `text` | `text` (required), `color` (`"dim"`) |
 
 `command` runs `cmd` through your shell in the session's directory and shows the first line of output. Its result, including a failure or timeout, is cached for `cacheSec`, so a slow command runs at most once per interval. Use it more than once with different inline options to add several custom segments.
+
+### Fitting to the terminal
+
+Claude Code sets `COLUMNS` to the terminal width when it runs the status line. A line wider than `COLUMNS − widthReserve` drops its lowest-priority segment (the rightmost one on a tie) until it fits, then gets the `overflowMarker`. If the one segment left is still too wide, it's cut off with `…` rather than wrapping. Default priorities:
+
+| Priority | Segments |
+| --- | --- |
+| 80–100 | `model` 100, `context` 95, `handoff` 90, `vim` 80 |
+| 50–79 | `cache` 70, `limits` 60, `dir` 55, `git` 50, `pr` 50 |
+| 25–49 | `cost` 45, `tokens` 40, `agent` 40, `session` 30, `command` 25 |
+| 0–24 | `duration` 20, `clock` 10, `text` 10 |
+
+Change one with `"priority"` under `segments.<id>` or on a single entry in `lines`. In the configurator, pick a terminal width under the preview: segments that would be dropped are faded. Without `COLUMNS` (for example when you pipe a payload in by hand) lines are never fitted. If lines still wrap in your terminal, raise `widthReserve`; if they leave a gap, lower it.
 
 When something is wrong in the config, the status line still renders: a broken file falls back to the defaults, any problem adds a red **cfg** warning to line 1, an unknown segment id shows as `?id`, and a segment that throws shows as `!id`.
 

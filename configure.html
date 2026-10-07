@@ -65,6 +65,9 @@ header h1 { margin: 0; font-size: 20px; font-weight: 650; color: var(--strong); 
 .scenarios { display: flex; gap: 2px; background: #16161e; border-radius: 8px; padding: 2px; }
 .scenarios button { background: none; border: 0; border-radius: 6px; padding: 3px 12px; color: #737aa2; cursor: pointer; font-size: 13px; }
 .scenarios button[aria-pressed="true"] { background: #292e42; color: #c0caf5; }
+.terminal .cols { display: inline-block; min-width: 100%; }
+.terminal .cols.fixed { min-width: 0; border-right: 1px dashed #3b4261; padding-right: 2px; }
+.bar .label { font-size: 13px; color: #737aa2; margin-left: 6px; }
 .bar .hint { margin-left: auto; }
 
 .problems { margin: 14px 0 0; padding: 12px 16px; border: 1px solid var(--danger); border-radius: 10px; color: var(--danger); font-size: 14px; }
@@ -91,6 +94,7 @@ h2 { margin: 0 0 4px; font-size: 16px; font-weight: 650; color: var(--strong); }
 .chip .x:hover { color: #f7768e; }
 .chip[aria-selected="true"] { border-color: var(--chip, #7aa2f7); box-shadow: 0 0 0 1px var(--chip, #7aa2f7); }
 .chip.err { border-color: #f7768e; border-style: dashed; }
+.chip.dropped { opacity: .42; border-style: dashed; }
 .chip.dragging { opacity: .35; }
 .mark { width: 3px; align-self: stretch; border-radius: 2px; background: var(--accent); margin: 0 -2px; }
 
@@ -199,6 +203,14 @@ details.json pre { background: var(--surface); border: 1px solid var(--line); bo
         <button data-s="warning" aria-pressed="false">Near handoff</button>
         <button data-s="handoff" aria-pressed="false">Past handoff</button>
       </div>
+      <span class="label" id="width-label">Terminal width</span>
+      <div class="scenarios" role="group" aria-labelledby="width-label" id="widths">
+        <button data-w="" aria-pressed="true">Full</button>
+        <button data-w="120" aria-pressed="false">120</button>
+        <button data-w="100" aria-pressed="false">100</button>
+        <button data-w="80" aria-pressed="false">80</button>
+        <button data-w="60" aria-pressed="false">60</button>
+      </div>
       <span class="hint" id="fonthint"></span>
     </div>
   </section>
@@ -271,6 +283,8 @@ let saved = '{}';      // JSON of the last saved config, for dirty tracking
 let sel = null;        // selected chip: { li, ei }
 let tab = 'general';
 let scenario = 'typical';
+let previewWidth = null; // terminal columns to fit the preview to, or null for unlimited
+let dropped = [];        // per line, entry indexes the preview dropped to fit previewWidth
 let problems = [];
 let drag = null;       // { from: 'line', li, ei } | { from: 'tray', id, entry? }
 
@@ -410,11 +424,13 @@ function chipFor(entry, where) {
   const label = where.preset ?? (ml && where.li != null ? (value ? ml.show(value, entry) : ml.missing) : NAMES[id] ?? `?${id}`);
   const isSel = where.li != null && sel && sel.li === where.li && sel.ei === where.ei;
   const hasErr = where.li != null && problems.some((p) => p.startsWith(`lines[${where.li}][${where.ei}]`));
+  const isDropped = where.li != null && dropped[where.li]?.includes(where.ei);
   const chip = el('button', {
-    class: `chip${hasErr ? ' err' : ''}`,
+    class: `chip${hasErr ? ' err' : ''}${isDropped ? ' dropped' : ''}`,
     draggable: 'true',
     'aria-selected': isSel ? 'true' : 'false',
-    title: where.preset ? `Runs: ${entry.cmd}` : S.spec.segments[id]?.desc ?? 'Unknown segment',
+    title: (where.preset ? `Runs: ${entry.cmd}` : S.spec.segments[id]?.desc ?? 'Unknown segment') +
+      (isDropped ? ` Hidden at ${previewWidth} columns: raise its priority to keep it.` : ''),
     style: `--chip:${color}`,
     onclick: () => {
       if (where.li != null) { sel = { li: where.li, ei: where.ei }; tab = 'segment'; render(); }
@@ -650,6 +666,15 @@ function generalPane() {
           el('input', { type: 'text', value: sep, 'aria-label': 'Custom separator', onchange: (e) => setTop('separator', e.target.value) }),
         ],
       })),
+    el('div', { class: 'section' },
+      el('h4', {}, 'Fitting to the terminal'),
+      el('p', { class: 'hintline' }, 'Pick a terminal width under the preview to see what gets dropped. Each segment has a priority in its options.'),
+      field(st.fitWidth.desc, 'fitWidth', optionControl(st.fitWidth, val('fitWidth'), (v) => setTop('fitWidth', v), 'Fit lines to the terminal width')),
+      field(st.widthReserve.desc, 'widthReserve', { top: numberInput(config.widthReserve, st.widthReserve, (v) => setTop('widthReserve', v), 'Columns to reserve') }),
+      // An empty marker is meaningful (hide it), so this writes "" instead of falling back to the default
+      field(st.overflowMarker.desc, 'overflowMarker', {
+        below: el('input', { type: 'text', value: val('overflowMarker'), 'aria-label': 'Overflow marker', onchange: (e) => setTop('overflowMarker', e.target.value) }),
+      })),
   ];
 }
 
@@ -706,9 +731,12 @@ function schedulePreview() {
   previewTimer = setTimeout(async () => {
     const seq = ++previewSeq;
     try {
-      const { data } = await api('/api/preview', { config, scenario });
+      const { data } = await api('/api/preview', { config, scenario, width: previewWidth });
       if (seq !== previewSeq) return;
-      $('screen').innerHTML = data.lines.map((l) => `<div>${l || '&nbsp;'}</div>`).join('');
+      // A fixed width draws the terminal's right edge so you can see what fits
+      const cols = previewWidth ? ` fixed" style="width: ${previewWidth}ch` : '';
+      $('screen').innerHTML = `<div class="cols${cols}">${data.lines.map((l) => `<div>${l || '&nbsp;'}</div>`).join('')}</div>`;
+      dropped = data.dropped ?? [];
       // Refresh only what problems affect, so a field being typed in isn't rebuilt under the cursor
       problems = data.problems;
       renderRails();
@@ -744,9 +772,14 @@ async function init() {
 }
 
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; render(); }));
-document.querySelectorAll('.scenarios button').forEach((b) => b.addEventListener('click', () => {
+document.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => {
   scenario = b.dataset.s;
-  document.querySelectorAll('.scenarios button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  document.querySelectorAll('[data-s]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  schedulePreview();
+}));
+document.querySelectorAll('[data-w]').forEach((b) => b.addEventListener('click', () => {
+  previewWidth = Number(b.dataset.w) || null;
+  document.querySelectorAll('[data-w]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
   schedulePreview();
 }));
 $('addline').addEventListener('click', () => { const l = lines(); l.push([]); setLines(l); changed(); });

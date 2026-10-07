@@ -6,9 +6,9 @@
 // Layout and per-segment options come from SPEC defaults, overridden by ~/.claude/statusLine.json (or $STATUSLINE_CONFIG).
 // Context thresholds are keyed to handoffPct (default 60): refresh the session there instead of compacting.
 //
-//   node statusLine.js            render (Claude Code runs this on every refresh)
-//   node statusLine.js --check    validate the config file and preview it
-//   node statusLine.js --schema   print the config JSON Schema (committed as statusLine.schema.json)
+//   node statusLine.js                               render (Claude Code runs this on every refresh)
+//   node statusLine.js --check [file] [--width N]    validate the config file and preview it
+//   node statusLine.js --schema                      print the config JSON Schema (committed as statusLine.schema.json)
 'use strict';
 
 const fs = require('fs');
@@ -54,6 +54,9 @@ const SPEC = {
     handoffPct: { type: 'number', min: 1, max: 100, default: 60, desc: 'Context percentage at which to hand off to a fresh session. The HANDOFF_PCT env var overrides it.' },
     warnBelow: { type: 'number', min: 0, max: 100, default: 15, desc: 'Context turns yellow this many points below handoffPct.' },
     separator: { type: 'string', default: ' │ ', desc: 'Text between segments.' },
+    fitWidth: { type: 'boolean', default: true, desc: 'When a line is wider than the terminal, drop its lowest-priority segments until it fits.' },
+    widthReserve: { type: 'integer', min: 0, max: 40, default: 4, desc: "Columns to leave free at the right edge for Claude Code's own spacing." },
+    overflowMarker: { type: 'string', default: '…', desc: 'Shown at the end of a line when segments were dropped to fit. Empty to hide it.' },
   },
   lines: [
     ['model', 'context', 'handoff', 'tokens'],
@@ -61,6 +64,7 @@ const SPEC = {
   ],
   segments: {
     model: {
+      priority: 100,
       desc: 'Model name colored by family, reasoning effort, and a bolt when fast mode is on.',
       options: {
         effort: { type: 'boolean', default: true, desc: 'Show the reasoning effort level.' },
@@ -69,6 +73,7 @@ const SPEC = {
       },
     },
     context: {
+      priority: 95,
       desc: 'Context used vs. window size; yellow near the handoff target, red past it.',
       options: {
         barCells: { type: 'integer', min: 1, max: 40, default: 10, desc: 'Width of the bar in cells.' },
@@ -76,13 +81,15 @@ const SPEC = {
       },
     },
     handoff: {
+      priority: 90,
       desc: 'Tokens left before the handoff target, or "handoff now" once past it.',
       options: {
         turnEstimate: { type: 'boolean', default: true, desc: 'Estimate turns left from the average growth of recent turns.' },
       },
     },
-    tokens: { desc: 'Last request: newly processed input, output, and cache read.', options: {} },
+    tokens: { priority: 40, desc: 'Last request: newly processed input, output, and cache read.', options: {} },
     cache: {
+      priority: 70,
       desc: 'Prompt cache time left (or cold plus the tokens a re-cache would bill), hit ratio, misses.',
       options: {
         hitRatio: { type: 'boolean', default: true, desc: 'Show the cache hit ratio.' },
@@ -91,6 +98,7 @@ const SPEC = {
       },
     },
     limits: {
+      priority: 60,
       desc: 'Plan usage for the 5-hour and weekly windows, and the spend limit if your plan has one.',
       options: {
         windows: { type: 'list', items: Object.keys(LIMIT_WINDOWS), default: ['5h', 'wk'], desc: 'Which windows to show, in order. spend shows dollars used against a spend limit.' },
@@ -100,6 +108,7 @@ const SPEC = {
       },
     },
     cost: {
+      priority: 45,
       desc: 'Session cost and burn rate per hour.',
       options: {
         burnRate: { type: 'boolean', default: true, desc: 'Show the burn rate per hour.' },
@@ -107,6 +116,7 @@ const SPEC = {
       },
     },
     git: {
+      priority: 50,
       desc: 'Branch, dirty file count, ahead/behind, and lines added/removed this session.',
       options: {
         lineDelta: { type: 'boolean', default: true, desc: 'Show lines added/removed this session.' },
@@ -116,6 +126,7 @@ const SPEC = {
       },
     },
     dir: {
+      priority: 55,
       desc: 'Current folder, marked when it differs from where the session started, plus a count of added folders.',
       options: {
         style: { type: 'enum', values: ['short', 'name', 'full'], default: 'short', desc: 'short: ~ and the last two folders; name: the folder name only; full: the whole path.' },
@@ -124,12 +135,14 @@ const SPEC = {
       },
     },
     session: {
+      priority: 30,
       desc: 'Session name, from --name, /rename, or the generated title.',
       options: {
         maxLength: { type: 'integer', min: 4, max: 80, default: 30, desc: 'Shorten names longer than this.' },
       },
     },
     pr: {
+      priority: 50,
       desc: 'Open pull request (or GitLab merge request) for the branch, colored by review state.',
       options: {
         state: { type: 'boolean', default: true, desc: 'Show the review state.' },
@@ -137,24 +150,28 @@ const SPEC = {
       },
     },
     vim: {
+      priority: 80,
       desc: 'Vim mode when vim mode is on. Set hideVimModeIndicator in settings.json so it is not shown twice.',
       options: {
         short: { type: 'boolean', default: false, desc: 'Show one or two letters (N, I, V, VL) instead of the full mode.' },
       },
     },
     agent: {
+      priority: 40,
       desc: "Agent name when running with --agent, and the output style when it isn't the default.",
       options: {
         outputStyle: { type: 'boolean', default: true, desc: 'Show a non-default output style.' },
       },
     },
     duration: {
+      priority: 20,
       desc: 'Session time, and how much of it was spent waiting on the API.',
       options: {
         apiShare: { type: 'boolean', default: true, desc: 'Show the share of time spent waiting on the API.' },
       },
     },
     clock: {
+      priority: 10,
       desc: 'Local time. While the session is idle it only updates if refreshInterval is set in the statusLine settings.',
       options: {
         format: { type: 'enum', values: ['24h', '12h'], default: '24h', desc: 'Clock format.' },
@@ -162,6 +179,7 @@ const SPEC = {
       },
     },
     command: {
+      priority: 25,
       multi: true,
       desc: 'First line of output from a shell command, run in the session directory. Can be used more than once.',
       options: {
@@ -173,6 +191,7 @@ const SPEC = {
       },
     },
     text: {
+      priority: 10,
       multi: true,
       desc: 'Fixed text, such as a label or a spacer. Can be used more than once.',
       options: {
@@ -182,6 +201,11 @@ const SPEC = {
     },
   },
 };
+
+// Every segment takes a priority, used when its line is too wide for the terminal
+for (const seg of Object.values(SPEC.segments)) {
+  seg.options.priority = { type: 'integer', min: 0, max: 100, default: seg.priority, desc: 'When the line is too wide, segments with lower priority are dropped first.' };
+}
 
 const defaultsOf = (options) =>
   Object.fromEntries(Object.entries(options).filter(([, o]) => 'default' in o).map(([k, o]) => [k, o.default]));
@@ -688,18 +712,112 @@ function renderEntry(ctx, entry) {
   }
 }
 
-// Renders a status payload with a resolved config. `problems` (from validation) adds a warning to line 1.
-function render(d, cfg, { problems = [], preview = false } = {}) {
+// Escape sequences the renderer emits: SGR colors and OSC 8 hyperlinks. Both take no columns on screen.
+const ESCAPES = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x1b]*\x1b\\/g;
+
+// Terminal columns a code point takes: 0 for combining marks and variation selectors, 2 for East Asian wide
+// characters and emoji, 1 otherwise (including Nerd Font glyphs, which terminals draw in a single cell).
+function charWidth(cp) {
+  if ((cp >= 0x300 && cp <= 0x36f) || (cp >= 0x200b && cp <= 0x200f) || (cp >= 0xfe00 && cp <= 0xfe0f)) return 0;
+  if (
+    (cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) ||
+    (cp >= 0xf900 && cp <= 0xfaff) || (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) ||
+    (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1f64f) || (cp >= 0x1f900 && cp <= 0x1f9ff) ||
+    (cp >= 0x20000 && cp <= 0x3fffd)
+  ) return 2;
+  return 1;
+}
+
+function visibleWidth(s) {
+  let w = 0;
+  for (const ch of s.replace(ESCAPES, '')) w += charWidth(ch.codePointAt(0));
+  return w;
+}
+
+// Cuts a rendered string to `max` columns, ending in "…". Escape sequences are kept intact, and colors and any
+// open hyperlink are closed afterwards so nothing bleeds past the cut.
+function truncate(s, max) {
+  if (visibleWidth(s) <= max) return s;
+  let out = '';
+  let w = 0;
+  for (const part of s.split(new RegExp(`(${ESCAPES.source})`))) {
+    if (!part) continue;
+    if (part.startsWith('\x1b')) {
+      out += part;
+      continue;
+    }
+    for (const ch of part) {
+      const cw = charWidth(ch.codePointAt(0));
+      if (w + cw > max - 1) return `${out}\x1b]8;;\x1b\\\x1b[0m${paint(C.dim, '…')}`;
+      out += ch;
+      w += cw;
+    }
+  }
+  return out;
+}
+
+// Fits one line's rendered segments into `budget` columns: switches items that have a compact form (`alt`) to it,
+// then drops the lowest priority first (rightmost on a tie), marks the line when anything was dropped, and
+// truncates if the last segment standing is still too wide.
+// Returns the line text and the indexes of the dropped segments.
+function fitLine(items, cfg, budget) {
+  const sepWidth = visibleWidth(cfg.separator);
+  const marker = cfg.overflowMarker ? ` ${paint(C.dim, cfg.overflowMarker)}` : '';
+  const markerWidth = visibleWidth(marker);
+  const kept = [...items];
+  const dropped = [];
+  const width = () => kept.reduce((sum, it) => sum + it.width, 0) + sepWidth * Math.max(0, kept.length - 1) + (dropped.length ? markerWidth : 0);
+  if (width() > budget) {
+    for (const it of kept.filter((x) => x.alt)) Object.assign(it, { text: it.alt, width: visibleWidth(it.alt) });
+  }
+  while (kept.length > 1 && width() > budget) {
+    let victim = 0;
+    kept.forEach((it, i) => {
+      if (it.priority <= kept[victim].priority) victim = i;
+    });
+    dropped.push(kept.splice(victim, 1)[0].index);
+  }
+  const text = kept.map((it) => it.text).join(paint(C.dim, cfg.separator)) + (dropped.length ? marker : '');
+  return { text: truncate(text, budget), dropped };
+}
+
+// Renders each line and, given a terminal width, fits it. Returns per line the text and the entry indexes that
+// were dropped to fit (entries with no data are just absent). `problems` (from validation) adds a warning to line 1.
+function layout(d, cfg, { problems = [], preview = false, width = null } = {}) {
   applyTheme(cfg);
   const ctx = { d, cfg, preview, now: Date.now() / 1000, cwd: d.workspace?.current_dir ?? d.cwd, memo: {} };
-  const sep = paint(C.dim, cfg.separator);
-  const lines = cfg.lines.map((entries) => entries.map((e) => renderEntry(ctx, e)).filter(Boolean));
+  const lines = cfg.lines.map((entries) =>
+    entries
+      .map((entry, index) => {
+        const text = renderEntry(ctx, entry);
+        const id = typeof entry === 'string' ? entry : entry?.id;
+        const inline = isObject(entry) ? entry.priority : undefined;
+        const priority = Number(inline ?? cfg.segments?.[id]?.priority ?? 0);
+        return text && { text, index, priority };
+      })
+      .filter(Boolean)
+  );
   if (problems.length) {
     if (!lines.length) lines.push([]);
     const more = problems.length > 1 ? ` (+${problems.length - 1} more, run --check)` : '';
-    lines[0].push(paint(C.red, `${I.warn} cfg`) + paint(C.dim, ` ${problems[0]}${more}`));
+    lines[0].push({
+      text: paint(C.red, `${I.warn} cfg`) + paint(C.dim, ` ${problems[0]}${more}`),
+      alt: paint(C.red, `${I.warn} cfg`) + paint(C.dim, ' (run --check)'),
+      index: -1,
+      priority: Infinity,
+    });
   }
-  return lines.map((l) => l.join(sep)).filter(Boolean).join('\n');
+  const budget = cfg.fitWidth !== false && width > 0 ? width - (Number(cfg.widthReserve) || 0) : null;
+  return lines.map((items) => {
+    if (budget == null) return { text: items.map((it) => it.text).join(paint(C.dim, cfg.separator)), dropped: [] };
+    for (const it of items) it.width = visibleWidth(it.text);
+    return fitLine(items, cfg, Math.max(1, budget));
+  });
+}
+
+// Renders a status payload with a resolved config as the final multi-line string.
+function render(d, cfg, opts = {}) {
+  return layout(d, cfg, opts).map((l) => l.text).filter(Boolean).join('\n');
 }
 
 // Sample payloads for previews, from comfortable to past the handoff target
@@ -826,15 +944,16 @@ function toSchema() {
   };
 }
 
-// --check: validates the config file and previews it in all three sample scenarios. Exits 1 on problems.
-function check(file) {
+// --check: validates the config file and previews it in all three sample scenarios, optionally fitted to a
+// terminal width. Exits 1 on problems.
+function check(file, width) {
   const { cfg, problems } = loadConfig(file);
   const exists = fs.existsSync(file);
-  const out = [`${file}${exists ? '' : ' (not found, using defaults)'}`];
+  const out = [`${file}${exists ? '' : ' (not found, using defaults)'}${width ? `, fitted to ${width} columns` : ''}`];
   if (problems.length) out.push(...problems.map((p) => paint(PALETTE.red, `  ✗ ${p}`)));
   else out.push(paint(PALETTE.green, '  ✓ valid'));
   for (const scenario of ['typical', 'warning', 'handoff']) {
-    out.push('', paint(PALETTE.dim, `${scenario}:`), render(samplePayload(scenario), cfg, { preview: true }));
+    out.push('', paint(PALETTE.dim, `${scenario}:`), render(samplePayload(scenario), cfg, { preview: true, width }));
   }
   process.stdout.write(out.join('\n') + '\n');
   process.exitCode = problems.length ? 1 : 0;
@@ -849,16 +968,20 @@ function main() {
     process.stdout.write(paint(C.red, `statusLine: bad input (${e.message})`));
     return;
   }
-  process.stdout.write(render(d, cfg, { problems }));
+  // Claude Code sets COLUMNS to the terminal width; without it (piping a payload by hand) lines aren't fitted
+  process.stdout.write(render(d, cfg, { problems, width: Number(process.env.COLUMNS) || null }));
 }
 
-module.exports = { SPEC, DEFAULTS, PALETTE, ICONS, CONFIG_FILE, SCHEMA_URL, validate, resolveConfig, render, samplePayload, toSchema };
+module.exports = { SPEC, DEFAULTS, PALETTE, ICONS, CONFIG_FILE, SCHEMA_URL, validate, resolveConfig, layout, render, samplePayload, toSchema, visibleWidth };
 
 if (require.main === module) {
-  const [flag, arg] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const flag = args[0];
+  const widthAt = args.indexOf('--width');
+  const width = widthAt >= 0 ? Number(args.splice(widthAt, 2)[1]) || null : null;
   try {
     if (flag === '--schema') process.stdout.write(JSON.stringify(toSchema(), null, 2) + '\n');
-    else if (flag === '--check') check(arg ? path.resolve(arg) : CONFIG_FILE);
+    else if (flag === '--check') check(args[1] ? path.resolve(args[1]) : CONFIG_FILE, width);
     else main();
   } catch (e) {
     process.stdout.write(`statusLine error: ${e.message}`);
