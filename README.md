@@ -65,3 +65,7 @@ Pipe a status payload in to preview the output without Claude Code:
 ```sh
 echo '{"model":{"id":"claude-opus-5-5","display_name":"Opus 5.5"},"effort":{"level":"high"},"context_window":{"context_window_size":1000000,"used_percentage":31,"current_usage":{"input_tokens":2000,"cache_creation_input_tokens":12000,"cache_read_input_tokens":296000,"output_tokens":2100}},"cost":{"total_cost_usd":4.12,"total_duration_ms":3900000},"cwd":"."}' | node statusLine.js
 ```
+
+## License
+
+[MIT](LICENSE)
