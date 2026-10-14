@@ -15,12 +15,20 @@ echo "Linked $DEST -> $SRC"
 
 cat <<'EOF'
 
-If you haven't already, add this to ~/.claude/settings.json:
+For Claude Code, add this to ~/.claude/settings.json:
 
   "statusLine": {
     "type": "command",
     "command": "node ~/.claude/statusLine.js",
     "padding": 0
+  }
+
+For Antigravity CLI (agy), run `/statusline node ~/.claude/statusLine.js` or add this to ~/.gemini/antigravity-cli/settings.json:
+
+  "statusLine": {
+    "type": "command",
+    "command": "node ~/.claude/statusLine.js",
+    "stack_with_default": true
   }
 EOF
 printf '\nTo customize the layout, run the visual editor:\n\n  node %s\n' "$(dirname "$SRC")/configure.js"

@@ -379,6 +379,174 @@ function fmtDuration(sec) {
 
 const pctColor = (pct, warn = 50, bad = 80) => (pct >= bad ? C.red : pct >= warn ? C.yellow : C.green);
 
+const AGY_CACHE_TTL_SEC = 3600;
+
+// Estimated API per-million token rates (USD) for Antigravity sessions when `cost` is not in the payload
+function agyRates(modelId = '', over200k = false) {
+  if (/argon|ultra|opus/i.test(modelId)) return { input: 4, cacheRead: 0.2, output: 20 };
+  if (/\bpro\b|sonnet/i.test(modelId)) return over200k ? { input: 4, cacheRead: 0.4, output: 18 } : { input: 2, cacheRead: 0.2, output: 12 };
+  if (/flash-lite/i.test(modelId)) return { input: 0.1, cacheRead: 0.01, output: 0.4 };
+  if (/flash|haiku/i.test(modelId)) return { input: 0.3, cacheRead: 0.03, output: 2.5 };
+  return { input: 2, cacheRead: 0.2, output: 12 };
+}
+
+// Incrementally reads Antigravity's transcript.jsonl (caching byte offset in STATE_DIR) to derive prompt_id,
+// per-turn context growth, prompt-cache hit ratio/TTL, session duration, API wait time, and estimated token cost.
+function agyTranscript(sessionId, transcriptPath, modelId) {
+  if (!transcriptPath) return null;
+  const key = (sessionId || crypto.createHash('sha1').update(transcriptPath).digest('hex').slice(0, 16)).replace(/[^\w-]/g, '');
+  const cacheFile = path.join(STATE_DIR, `agy-${key}.json`);
+  const blank = () => ({
+    offset: 0, userInputs: 0, calls: 0, inputTokens: 0, cacheReadTokens: 0, outputTokens: 0, misses: 0,
+    firstAt: null, lastStepAt: null, lastModelAt: null, apiMs: 0, costUsd: 0,
+    turnStartUsed: 0, lastContextUsed: 0, turnHistory: [],
+  });
+  let st = blank();
+  try {
+    const loaded = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    if (isObject(loaded) && typeof loaded.offset === 'number' && Array.isArray(loaded.turnHistory)) st = { ...st, ...loaded };
+  } catch {}
+  let stat;
+  try {
+    stat = fs.statSync(transcriptPath);
+  } catch {
+    return st.calls || st.userInputs ? st : null;
+  }
+  if (stat.size < st.offset) st = blank();
+  if (stat.size > st.offset) {
+    let chunk = '';
+    let bytesRead = 0;
+    try {
+      const fd = fs.openSync(transcriptPath, 'r');
+      try {
+        const len = stat.size - st.offset;
+        const buf = Buffer.allocUnsafe(len);
+        bytesRead = fs.readSync(fd, buf, 0, len, st.offset);
+        const lastNl = buf.lastIndexOf(0x0a, bytesRead - 1);
+        if (lastNl >= 0) {
+          chunk = buf.toString('utf8', 0, lastNl);
+          st.offset += lastNl + 1;
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {}
+    if (chunk) {
+      for (const line of chunk.split('\n')) {
+        if (!line) continue;
+        const head = line.slice(0, 320);
+        const tm = head.match(/"created_at":"([^"]+)"/);
+        const at = tm ? Date.parse(tm[1]) : NaN;
+        if (Number.isFinite(at) && st.firstAt == null) st.firstAt = at;
+        if (head.includes('"type":"USER_INPUT"')) {
+          if (st.userInputs > 0 && st.lastContextUsed > st.turnStartUsed) {
+            st.turnHistory = [...st.turnHistory, st.lastContextUsed - st.turnStartUsed].slice(-HISTORY_TURNS);
+          }
+          st.turnStartUsed = st.lastContextUsed;
+          st.userInputs++;
+        } else if (head.includes('"type":"PLANNER_RESPONSE"')) {
+          const inp = Number(head.match(/"input_tokens":(\d+)/)?.[1] ?? 0);
+          const cr = Number(head.match(/"cache_read_tokens":(\d+)/)?.[1] ?? 0);
+          const out = Number(head.match(/"output_tokens":(\d+)/)?.[1] ?? 0);
+          const ctxUsed = inp + cr;
+          if (ctxUsed < st.lastContextUsed) {
+            st.turnStartUsed = 0;
+            st.turnHistory = [];
+          }
+          st.lastContextUsed = ctxUsed;
+          if (st.calls > 0 && cr === 0 && st.inputTokens + st.cacheReadTokens > 0) st.misses++;
+          st.calls++;
+          st.inputTokens += inp;
+          st.cacheReadTokens += cr;
+          st.outputTokens += out;
+          const rates = agyRates(modelId, ctxUsed > 200000);
+          st.costUsd += (inp * rates.input + cr * rates.cacheRead + out * rates.output) / 1e6;
+          if (Number.isFinite(at)) {
+            if (st.lastStepAt != null && at >= st.lastStepAt && at - st.lastStepAt < 600000) st.apiMs += at - st.lastStepAt;
+            st.lastModelAt = at;
+          }
+        }
+        if (Number.isFinite(at)) st.lastStepAt = at;
+      }
+      try {
+        fs.mkdirSync(STATE_DIR, { recursive: true });
+        fs.writeFileSync(cacheFile, JSON.stringify(st));
+      } catch {}
+    }
+  }
+  return st;
+}
+
+// Enriches Antigravity (agy) status payloads with Claude Code-compatible fields so all segments work in both CLIs.
+function normalizePayload(raw, now, preview = false) {
+  if (!isObject(raw)) return raw;
+  const d = { ...raw };
+  d.session_id ??= d.conversation_id;
+  const modelText = d.model?.display_name ?? d.model?.id ?? '';
+  if (!d.effort?.level) {
+    const m = modelText.match(/\((low|medium|high|xhigh|max)\)\s*$/i);
+    if (m) d.effort = { ...d.effort, level: m[1].toLowerCase() };
+  }
+  if (d.thinking?.enabled == null && /\(thinking\)/i.test(modelText)) {
+    d.thinking = { ...d.thinking, enabled: true };
+  }
+  if (d.fast_mode == null && d.execution_mode != null) {
+    d.fast_mode = d.execution_mode === 'fast';
+  }
+  if (!d.rate_limits && isObject(d.quota)) {
+    const rl = {};
+    for (const [k, q] of Object.entries(d.quota)) {
+      if (!isObject(q) || q.remaining_fraction == null) continue;
+      const used_percentage = Math.max(0, Math.min(100, (1 - Number(q.remaining_fraction)) * 100));
+      const resets_at = q.reset_in_seconds != null ? now + Number(q.reset_in_seconds) : q.reset_time ? Date.parse(q.reset_time) / 1000 : null;
+      const win = /week|wk|7d/i.test(k) ? 'seven_day' : /5h|five|hour|day|daily/i.test(k) ? 'five_hour' : q.reset_in_seconds > 86400 || !rl.seven_day ? 'seven_day' : 'five_hour';
+      if (!rl[win] || used_percentage > rl[win].used_percentage) rl[win] = { used_percentage, resets_at };
+    }
+    if (Object.keys(rl).length) d.rate_limits = rl;
+  }
+  const cw = d.context_window;
+  const u = cw?.current_usage;
+  const usedTokens = u ? (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) : cw?.total_input_tokens ?? 0;
+  if (!preview && d.transcript_path && (d.prompt_id == null || !d.prompt_cache || !d.cost)) {
+    const tr = agyTranscript(d.session_id, d.transcript_path, modelText);
+    if (tr) {
+      if (d.prompt_id == null && tr.userInputs > 0) d.prompt_id = String(tr.userInputs);
+      d._agyTurn = { turnStartUsed: tr.turnStartUsed, turnHistory: tr.turnHistory };
+      if (!d.prompt_cache && tr.calls > 0) {
+        const totalIn = tr.inputTokens + tr.cacheReadTokens;
+        const expires_at = tr.lastModelAt ? tr.lastModelAt / 1000 + AGY_CACHE_TTL_SEC : null;
+        d.prompt_cache = {
+          caching_observed: true,
+          warm: expires_at ? expires_at > now : true,
+          expires_at,
+          hit_ratio: totalIn > 0 ? tr.cacheReadTokens / totalIn : null,
+          misses: tr.misses,
+          recache_tokens_if_cold: usedTokens,
+        };
+      }
+      if (!d.cost && tr.firstAt != null) {
+        d.cost = {
+          total_cost_usd: tr.costUsd,
+          total_duration_ms: Math.max(0, now * 1000 - tr.firstAt),
+          total_api_duration_ms: tr.apiMs,
+        };
+      }
+    }
+  }
+  if (!d.prompt_cache && d.product === 'antigravity' && u && (u.cache_read_input_tokens > 0 || u.input_tokens > 0)) {
+    const totalIn = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+    d.prompt_cache = {
+      caching_observed: true,
+      warm: true,
+      expires_at: now + AGY_CACHE_TTL_SEC,
+      hit_ratio: totalIn > 0 ? (u.cache_read_input_tokens ?? 0) / totalIn : null,
+      misses: 0,
+      recache_tokens_if_cold: usedTokens,
+    };
+  }
+  return d;
+}
+
 // Tracks context growth per user prompt so we can show this turn's delta and estimate turns left.
 // Each status refresh is a separate process, so the running numbers live in a small per-session file.
 function turnStats(sessionId, promptId, used) {
@@ -420,7 +588,16 @@ function contextInfo(ctx) {
     const used = u ? (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) : cw.total_input_tokens ?? 0;
     const pct = cw.used_percentage ?? (size ? (used / size) * 100 : 0);
     const color = pct >= cfg.handoffPct ? C.red : pct >= cfg.warnPct ? C.yellow : C.green;
-    info = { size, u, used, pct, color, ...turnStats(d.session_id, d.prompt_id, used) };
+    let stats;
+    if (d._agyTurn) {
+      const delta = Math.max(0, used - d._agyTurn.turnStartUsed);
+      const samples = d._agyTurn.turnHistory.length ? d._agyTurn.turnHistory : delta > 0 ? [delta] : [];
+      const avg = samples.length ? samples.reduce((a, b) => a + b, 0) / samples.length : null;
+      stats = { delta, avg };
+    } else {
+      stats = turnStats(d.session_id, d.prompt_id, used);
+    }
+    info = { size, u, used, pct, color, ...stats };
   }
   return (ctx.memo.context = info);
 }
@@ -429,7 +606,7 @@ function modelSegment({ d }, o) {
   const id = d.model?.id ?? '';
   const name = (d.model?.display_name ?? id).replace(/\s*\(.*\)\s*$/, '');
   if (!name) return null;
-  const color = /opus/i.test(id) ? C.purple : /sonnet/i.test(id) ? C.blue : /haiku/i.test(id) ? C.green : /fable/i.test(id) ? C.teal : C.cyan;
+  const color = /opus|argon|ultra/i.test(id) ? C.purple : /sonnet|\bpro\b/i.test(id) ? C.blue : /haiku|flash/i.test(id) ? C.green : /fable/i.test(id) ? C.teal : C.cyan;
   let s = paint(color, `${I.model} ${name}`, true);
   const effort = d.effort?.level;
   if (o.effort && effort) s += paint(C.dim, ' · ') + paint(C[EFFORT_COLORS[effort]] ?? C.fg, effort);
@@ -557,9 +734,27 @@ function gitSegment({ d, cwd }, o) {
   if (dirty) s += ' ' + paint(C.yellow, `●${dirty}`);
   if (ahead) s += ' ' + paint(C.green, `↑${ahead}`);
   if (behind) s += ' ' + paint(C.red, `↓${behind}`);
-  const added = d.cost?.total_lines_added ?? 0;
-  const removed = d.cost?.total_lines_removed ?? 0;
-  if (o.lineDelta && (added || removed)) s += ' ' + paint(C.green, `+${added}`) + ' ' + paint(C.red, `−${removed}`);
+  let added = d.cost?.total_lines_added;
+  let removed = d.cost?.total_lines_removed;
+  if (o.lineDelta && added == null && removed == null && dirty) {
+    try {
+      const diff = execFileSync('git', ['--no-optional-locks', '-C', cwd, 'diff', 'HEAD', '--numstat'], {
+        encoding: 'utf8',
+        timeout: o.timeoutMs,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      added = 0;
+      removed = 0;
+      for (const line of diff.split('\n')) {
+        const m = line.match(/^(\d+)\t(\d+)\t/);
+        if (m) {
+          added += Number(m[1]);
+          removed += Number(m[2]);
+        }
+      }
+    } catch {}
+  }
+  if (o.lineDelta && (added || removed)) s += ' ' + paint(C.green, `+${added ?? 0}`) + ' ' + paint(C.red, `−${removed ?? 0}`);
   return s;
 }
 
@@ -783,9 +978,11 @@ function fitLine(items, cfg, budget) {
 
 // Renders each line and, given a terminal width, fits it. Returns per line the text and the entry indexes that
 // were dropped to fit (entries with no data are just absent). `problems` (from validation) adds a warning to line 1.
-function layout(d, cfg, { problems = [], preview = false, width = null } = {}) {
+function layout(raw, cfg, { problems = [], preview = false, width = null } = {}) {
   applyTheme(cfg);
-  const ctx = { d, cfg, preview, now: Date.now() / 1000, cwd: d.workspace?.current_dir ?? d.cwd, memo: {} };
+  const now = Date.now() / 1000;
+  const d = normalizePayload(raw, now, preview);
+  const ctx = { d, cfg, preview, now, cwd: d.workspace?.current_dir ?? d.cwd, memo: {} };
   const lines = cfg.lines.map((entries) =>
     entries
       .map((entry, index) => {
@@ -968,11 +1165,11 @@ function main() {
     process.stdout.write(paint(C.red, `statusLine: bad input (${e.message})`));
     return;
   }
-  // Claude Code sets COLUMNS to the terminal width; without it (piping a payload by hand) lines aren't fitted
-  process.stdout.write(render(d, cfg, { problems, width: Number(process.env.COLUMNS) || null }));
+  // Claude Code sets COLUMNS to the terminal width; Antigravity passes terminal_width in the payload
+  process.stdout.write(render(d, cfg, { problems, width: Number(process.env.COLUMNS) || Number(d.terminal_width) || null }));
 }
 
-module.exports = { SPEC, DEFAULTS, PALETTE, ICONS, CONFIG_FILE, SCHEMA_URL, validate, resolveConfig, layout, render, samplePayload, toSchema, visibleWidth };
+module.exports = { SPEC, DEFAULTS, PALETTE, ICONS, CONFIG_FILE, SCHEMA_URL, validate, resolveConfig, normalizePayload, layout, render, samplePayload, toSchema, visibleWidth };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
