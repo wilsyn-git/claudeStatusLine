@@ -1,6 +1,6 @@
 # claudeStatusLine
 
-A configurable [Claude Code](https://docs.claude.com/en/docs/claude-code/statusline) status line, tuned for handoff-based session management: instead of letting a session compact, you hand off to a fresh one once context reaches a target. Single Node script, no dependencies. Colors are [Tokyo Night](https://github.com/folke/tokyonight.nvim).
+A configurable [Claude Code](https://docs.claude.com/en/docs/claude-code/statusline) and [Antigravity CLI (`agy`)](https://antigravity.google/docs/cli/statusline) status line, tuned for handoff-based session management: instead of letting a session compact, you hand off to a fresh one once context reaches a target. Single Node script, no dependencies. Colors are [Tokyo Night](https://github.com/folke/tokyonight.nvim).
 
 ```
  Opus 5.5 · high │ ▰▰▰▱▱▱▱▱▱▱ 31% 310k/1M │  290k │ ↑14k ↓2.1k  296k
@@ -58,6 +58,16 @@ git clone https://github.com/wilsyn-git/claudeStatusLine.git ~/code/claudeStatus
   "type": "command",
   "command": "node ~/.claude/statusLine.js",
   "padding": 0
+}
+```
+
+For Antigravity CLI (`agy`), run `/statusline node ~/.claude/statusLine.js` in the TUI or add this to `~/.gemini/antigravity-cli/settings.json`:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "node ~/.claude/statusLine.js",
+  "stack_with_default": true
 }
 ```
 
